@@ -1,0 +1,17 @@
+{
+  "name": "pleasanton",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Pleasanton: HOA PvP neighborhood-builder (web).",
+  "workspaces": [
+    "web",
+    "server"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w web",
+    "dev:server": "npm run dev -w server",
+    "build": "npm run build -w web",
+    "start": "npm run start -w web"
+  },
+  "license": "ISC"
+}
