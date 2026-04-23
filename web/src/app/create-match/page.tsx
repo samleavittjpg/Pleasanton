@@ -7,6 +7,9 @@ import { connectClient } from "../../lib/ws";
 const SKIN_TONES = ["#f8d7b5", "#d9a97f", "#ad7f58", "#7f5a3f"] as const;
 const SHIRT_COLORS = ["#8cc8ff", "#7fd38a", "#f5ae75", "#d39af5"] as const;
 const HAIR_COLORS = ["#2f2523", "#5d3d2b", "#d8b26e", "#5a5a5a"] as const;
+const EYE_COLORS = ["#131313", "#3b82f6", "#22c55e", "#f97316", "#a855f7"] as const;
+const HAIR_STYLES = ["short", "spiky", "bob", "buzz"] as const;
+type HairStyle = (typeof HAIR_STYLES)[number];
 
 export default function CreateMatchPage() {
   const router = useRouter();
@@ -17,9 +20,27 @@ export default function CreateMatchPage() {
   const [skinTone, setSkinTone] = useState<string>(SKIN_TONES[0]);
   const [shirtColor, setShirtColor] = useState<string>(SHIRT_COLORS[0]);
   const [hairColor, setHairColor] = useState<string>(HAIR_COLORS[0]);
-  const [hat, setHat] = useState(false);
+  const [eyeColor, setEyeColor] = useState<string>(EYE_COLORS[0]);
+  const [hairStyle, setHairStyle] = useState<HairStyle>(HAIR_STYLES[0]);
+  const [customizerStatus, setCustomizerStatus] = useState("");
 
   const client = useMemo(() => connectClient(), []);
+  const randomFrom = <T,>(list: readonly T[]) => list[Math.floor(Math.random() * list.length)];
+
+  const randomizeCharacter = () => {
+    setSkinTone(randomFrom(SKIN_TONES));
+    setShirtColor(randomFrom(SHIRT_COLORS));
+    setHairColor(randomFrom(HAIR_COLORS));
+    setEyeColor(randomFrom(EYE_COLORS));
+    setHairStyle(randomFrom(HAIR_STYLES));
+    setCustomizerStatus("Randomized");
+  };
+
+  const saveCharacter = () => {
+    const character = { skinTone, shirtColor, hairColor, eyeColor, hairStyle };
+    localStorage.setItem("pleasantonCharacter", JSON.stringify(character));
+    setCustomizerStatus("Saved");
+  };
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
@@ -108,13 +129,14 @@ export default function CreateMatchPage() {
 
           <aside className="rounded-none border border-zinc-800 bg-zinc-900/40 p-5">
             <h2 className="text-xs uppercase text-zinc-200">Character Prototype</h2>
-            <div className="character-stage mt-4">
-              <div className="character-shadow" />
-              <div className={`character-hat ${hat ? "is-visible" : ""}`} />
+            <div className="character-stage torso-stage mt-4">
+              <div className={`character-hair hair-${hairStyle}`} style={{ backgroundColor: hairColor }} />
               <div className="character-head" style={{ backgroundColor: skinTone }} />
-              <div className="character-hair" style={{ backgroundColor: hairColor }} />
+              <div className="character-eyes">
+                <span style={{ backgroundColor: eyeColor }} />
+                <span style={{ backgroundColor: eyeColor }} />
+              </div>
               <div className="character-body" style={{ backgroundColor: shirtColor }} />
-              <div className="character-legs" />
             </div>
 
             <div className="mt-4 grid gap-3">
@@ -129,6 +151,23 @@ export default function CreateMatchPage() {
                       onClick={() => setSkinTone(color)}
                       aria-label={`Skin ${color}`}
                     />
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <div className="mb-2 text-[10px] uppercase text-zinc-400">Hair Style</div>
+                <div className="grid grid-cols-2 gap-2">
+                  {HAIR_STYLES.map((style) => (
+                    <button
+                      key={style}
+                      className={`rounded-none border px-2 py-1 text-[10px] uppercase ${
+                        hairStyle === style ? "border-zinc-300 bg-zinc-700 text-zinc-50" : "border-zinc-700 bg-zinc-900 text-zinc-300"
+                      }`}
+                      onClick={() => setHairStyle(style)}
+                    >
+                      {style}
+                    </button>
                   ))}
                 </div>
               </div>
@@ -149,6 +188,21 @@ export default function CreateMatchPage() {
               </div>
 
               <div>
+                <div className="mb-2 text-[10px] uppercase text-zinc-400">Eyes</div>
+                <div className="flex gap-2">
+                  {EYE_COLORS.map((color) => (
+                    <button
+                      key={color}
+                      className="picker-dot"
+                      style={{ backgroundColor: color }}
+                      onClick={() => setEyeColor(color)}
+                      aria-label={`Eyes ${color}`}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              <div>
                 <div className="mb-2 text-[10px] uppercase text-zinc-400">Shirt</div>
                 <div className="flex gap-2">
                   {SHIRT_COLORS.map((color) => (
@@ -163,10 +217,21 @@ export default function CreateMatchPage() {
                 </div>
               </div>
 
-              <label className="mt-1 flex items-center gap-2 text-[10px] uppercase text-zinc-300">
-                <input type="checkbox" checked={hat} onChange={(e) => setHat(e.target.checked)} />
-                Hat
-              </label>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <button
+                  className="rounded-none border border-zinc-700 bg-zinc-900 px-2 py-2 text-[10px] uppercase hover:bg-zinc-800"
+                  onClick={randomizeCharacter}
+                >
+                  Randomize
+                </button>
+                <button
+                  className="rounded-none border border-emerald-300 bg-emerald-500 px-2 py-2 text-[10px] uppercase text-emerald-950 hover:bg-emerald-400"
+                  onClick={saveCharacter}
+                >
+                  Done
+                </button>
+              </div>
+              {customizerStatus ? <div className="text-[10px] uppercase text-zinc-400">{customizerStatus}</div> : null}
             </div>
           </aside>
         </div>

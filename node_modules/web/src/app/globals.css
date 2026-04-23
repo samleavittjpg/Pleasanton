@@ -103,22 +103,19 @@ body {
   width: 112px;
   height: 146px;
   image-rendering: pixelated;
+  border: 3px solid #2a2a2a;
+  background: #f5ead8;
 }
 
-.character-shadow {
-  position: absolute;
-  left: 50%;
-  bottom: 10px;
-  width: 64px;
-  height: 10px;
-  transform: translateX(-50%);
-  background: rgb(0 0 0 / 0.45);
+.torso-stage {
+  width: 132px;
+  height: 156px;
 }
 
 .character-head {
   position: absolute;
   left: 50%;
-  top: 16px;
+  top: 36px;
   width: 44px;
   height: 40px;
   transform: translateX(-50%);
@@ -128,48 +125,55 @@ body {
 .character-hair {
   position: absolute;
   left: 50%;
-  top: 10px;
+  top: 24px;
   width: 52px;
   height: 14px;
   transform: translateX(-50%);
   border: 3px solid #222;
 }
 
+.character-hair.hair-short {
+  height: 14px;
+}
+
+.character-hair.hair-spiky {
+  height: 16px;
+  clip-path: polygon(0 100%, 8% 42%, 20% 100%, 33% 34%, 45% 100%, 58% 38%, 70% 100%, 82% 34%, 92% 100%, 100% 100%);
+}
+
+.character-hair.hair-bob {
+  width: 58px;
+  height: 20px;
+}
+
+.character-hair.hair-buzz {
+  width: 42px;
+  height: 8px;
+}
+
+.character-eyes {
+  position: absolute;
+  left: 50%;
+  top: 56px;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 12px;
+}
+
+.character-eyes span {
+  width: 6px;
+  height: 6px;
+  border: 1px solid #111;
+}
+
 .character-body {
   position: absolute;
   left: 50%;
-  top: 59px;
+  top: 79px;
   width: 52px;
-  height: 44px;
+  height: 48px;
   transform: translateX(-50%);
   border: 3px solid #222;
-}
-
-.character-legs {
-  position: absolute;
-  left: 50%;
-  top: 106px;
-  width: 44px;
-  height: 26px;
-  transform: translateX(-50%);
-  border: 3px solid #222;
-  background: #415a77;
-}
-
-.character-hat {
-  display: none;
-  position: absolute;
-  left: 50%;
-  top: 0;
-  width: 56px;
-  height: 16px;
-  transform: translateX(-50%);
-  border: 3px solid #222;
-  background: #e2ad2f;
-}
-
-.character-hat.is-visible {
-  display: block;
 }
 
 .picker-dot {
