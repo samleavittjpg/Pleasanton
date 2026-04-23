@@ -1,0 +1,16 @@
+/node_modules
+/web/node_modules
+/server/node_modules
+
+# Build outputs
+/web/.next
+/web/out
+/server/dist
+
+# Logs and OS files
+*.log
+.DS_Store
+
+# Environment files
+.env
+.env.*
