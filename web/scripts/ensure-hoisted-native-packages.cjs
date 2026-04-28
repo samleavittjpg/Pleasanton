@@ -109,6 +109,8 @@ function ensureLightningcssNativeBlob() {
 }
 
 if (process.platform !== "darwin") {
+  // Still link plain JS packages that Turbopack/PostCSS may fail to resolve when hoisted.
+  ensureSymlink("picocolors");
   process.exit(0);
 }
 
@@ -122,6 +124,7 @@ const archPkgs =
 for (const pkg of archPkgs) {
   ensureSymlink(pkg);
 }
+ensureSymlink("picocolors");
 
 ensureTailwindOxideNativeBlob();
 ensureLightningcssNativeBlob();
