@@ -52,7 +52,21 @@ function ensureSymlink(pkg) {
 
   const parent = path.dirname(dest);
   fs.mkdirSync(parent, { recursive: true });
-  fs.symlinkSync(path.relative(parent, src), dest, "dir");
+  try {
+    fs.symlinkSync(path.relative(parent, src), dest, "dir");
+  } catch (err) {
+    // On Windows, creating symlinks often requires Developer Mode or elevation.
+    // Fall back to a copy so local dev can proceed in locked-down environments.
+    if (
+      process.platform === "win32" &&
+      err &&
+      (err.code === "EPERM" || err.code === "UNKNOWN")
+    ) {
+      fs.cpSync(src, dest, { recursive: true });
+      return;
+    }
+    throw err;
+  }
 }
 
 function copyFileIfPresent(src, dest) {
