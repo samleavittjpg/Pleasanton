@@ -24,6 +24,11 @@ function resolveRepoRoot(): string {
 const repoRoot = resolveRepoRoot();
 
 const nextConfig: NextConfig = {
+  // Turbopack’s on-disk cache (.sst under `.next`) can fail with ENOENT on some
+  // machines (sync tools, partial deletes). Dev works fine without persisting it.
+  experimental: {
+    turbopackFileSystemCacheForDev: false,
+  },
   turbopack: {
     root: repoRoot,
   },
@@ -31,6 +36,16 @@ const nextConfig: NextConfig = {
   // `localhost` but the dev server was started with `-H 127.0.0.1` (or the reverse): different
   // origins. Allow both loopback hostnames for dev-only routes.
   allowedDevOrigins: ["localhost", "127.0.0.1", "[::1]"],
+  // Webpack’s default dev cache writes under `.next/dev/cache/webpack/…` and renames `*.pack.gz_`
+  // → `*.pack.gz`. iCloud (or other sync) on `Documents/` can delete or lock those paths mid-write,
+  // which then cascades into missing routes-manifest and compiled `page.js` under `.next/dev/`.
+  // Memory cache avoids that disk layer; first compile is a bit slower, dev is stable.
+  webpack: (config, { dev }) => {
+    if (dev) {
+      config.cache = { type: "memory" };
+    }
+    return config;
+  },
 };
 
 export default nextConfig;

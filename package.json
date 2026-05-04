@@ -16,6 +16,7 @@
     "setup": "npm install && npm run doctor",
     "dev": "npm run dev -w web",
     "dev:fresh": "npm run dev:fresh -w web",
+    "dev:turbo": "npm run dev:turbo -w web",
     "dev:server": "npm run dev -w server",
     "build": "npm run build -w web",
     "start": "npm run start -w web"
