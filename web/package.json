@@ -5,6 +5,7 @@
   "scripts": {
     "postinstall": "node ./scripts/ensure-hoisted-native-packages.cjs",
     "dev": "next dev",
+    "dev:fresh": "node ./scripts/clean-next.cjs && next dev",
     "dev:webpack": "next dev --webpack",
     "build": "next build",
     "start": "next start",
