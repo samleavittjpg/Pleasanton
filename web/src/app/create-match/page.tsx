@@ -23,6 +23,7 @@ export default function CreateMatchPage() {
   const [eyeColor, setEyeColor] = useState<string>(EYE_COLORS[0]);
   const [hairStyle, setHairStyle] = useState<HairStyle>(HAIR_STYLES[0]);
   const [customizerStatus, setCustomizerStatus] = useState("");
+  const [doneError, setDoneError] = useState("");
 
   const client = useMemo(() => connectClient(), []);
   const randomFrom = <T,>(list: readonly T[]) => list[Math.floor(Math.random() * list.length)];
@@ -36,10 +37,28 @@ export default function CreateMatchPage() {
     setCustomizerStatus("Randomized");
   };
 
-  const saveCharacter = () => {
-    const character = { skinTone, shirtColor, hairColor, eyeColor, hairStyle };
+  const saveCharacterOnly = () => {
+    const character = { skinTone, shirtColor, hairColor, eyeColor, hairStyle, displayName: name };
     localStorage.setItem("pleasantonCharacter", JSON.stringify(character));
+    localStorage.setItem("pleasantonPlayerName", name.trim() || "Anonymous");
     setCustomizerStatus("Saved");
+  };
+
+  const saveCharacterAndEnterNeighborhood = async () => {
+    const character = { skinTone, shirtColor, hairColor, eyeColor, hairStyle, displayName: name };
+    localStorage.setItem("pleasantonCharacter", JSON.stringify(character));
+    localStorage.setItem("pleasantonPlayerName", name.trim() || "Anonymous");
+    setCustomizerStatus("Creating match…");
+    setDoneError("");
+    try {
+      const { matchId } = await client.createMatch(lengthMinutes);
+      localStorage.setItem("pleasantonMatchId", matchId);
+      setCustomizerStatus("Entering neighborhood…");
+      router.push(`/match/${matchId}`);
+    } catch (e) {
+      setCustomizerStatus("");
+      setDoneError(e instanceof Error ? e.message : "Could not create match");
+    }
   };
 
   return (
@@ -90,10 +109,16 @@ export default function CreateMatchPage() {
                   className="mt-2 rounded-none border border-emerald-300 bg-emerald-500 px-3 py-2 text-xs text-emerald-950 hover:bg-emerald-400"
                   onClick={async () => {
                     setStatus("Creating match...");
-                    client.send({ type: "client/hello", name });
-                    const created = await client.createMatch(lengthMinutes);
-                    setStatus("");
-                    router.push(`/match/${created.matchId}`);
+                    try {
+                      client.send({ type: "client/hello", name });
+                      const created = await client.createMatch(lengthMinutes);
+                      localStorage.setItem("pleasantonPlayerName", name.trim() || "Anonymous");
+                      localStorage.setItem("pleasantonMatchId", created.matchId);
+                      setStatus("");
+                      router.push(`/match/${created.matchId}`);
+                    } catch (e) {
+                      setStatus(e instanceof Error ? e.message : "Create failed");
+                    }
                   }}
                 >
                   Create Match
@@ -111,12 +136,19 @@ export default function CreateMatchPage() {
                 <button
                   className="rounded-none border border-zinc-700 bg-zinc-950 px-3 py-2 text-xs hover:bg-zinc-900"
                   onClick={async () => {
-                    if (!matchId.trim()) return;
+                    const code = matchId.trim().toUpperCase();
+                    if (!code) return;
                     setStatus("Joining match...");
-                    client.send({ type: "client/hello", name });
-                    await client.joinMatch(matchId.trim());
-                    setStatus("");
-                    router.push(`/match/${matchId.trim()}`);
+                    try {
+                      client.send({ type: "client/hello", name });
+                      await client.joinMatch(code);
+                      localStorage.setItem("pleasantonPlayerName", name.trim() || "Anonymous");
+                      localStorage.setItem("pleasantonMatchId", code);
+                      setStatus("");
+                      router.push(`/match/${code}`);
+                    } catch (e) {
+                      setStatus(e instanceof Error ? e.message : "Join failed");
+                    }
                   }}
                 >
                   Join
@@ -226,12 +258,16 @@ export default function CreateMatchPage() {
                 </button>
                 <button
                   className="rounded-none border border-emerald-300 bg-emerald-500 px-2 py-2 text-[10px] uppercase text-emerald-950 hover:bg-emerald-400"
-                  onClick={saveCharacter}
+                  onClick={() => void saveCharacterAndEnterNeighborhood()}
                 >
                   Done
                 </button>
               </div>
+              {doneError ? <div className="text-[10px] uppercase text-rose-300">{doneError}</div> : null}
               {customizerStatus ? <div className="text-[10px] uppercase text-zinc-400">{customizerStatus}</div> : null}
+              <button type="button" className="text-[9px] uppercase text-zinc-500 underline" onClick={saveCharacterOnly}>
+                Save look only (stay here)
+              </button>
             </div>
           </aside>
         </div>

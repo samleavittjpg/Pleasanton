@@ -14,9 +14,18 @@ type RequestResponse = {
   error?: string;
 };
 
-export function connectClient(baseUrl = "http://localhost:8787") {
+function apiBase() {
+  if (typeof window !== "undefined") {
+    return "";
+  }
+  return process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+}
+
+export function connectClient(baseUrl?: string) {
+  const root = baseUrl ?? apiBase();
+
   async function request(payload: RequestPayload): Promise<RequestResponse> {
-    const response = await fetch(`${baseUrl}/api/match`, {
+    const response = await fetch(`${root}/api/match`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -43,6 +52,33 @@ export function connectClient(baseUrl = "http://localhost:8787") {
       const data = await request({ action: "joinMatch", matchId });
       if (data.ok === false) throw new Error(data.error || "Unable to join match");
       return { ok: true };
+    },
+
+    async pickPlot(matchId: string, plotId: string, playerName: string) {
+      const response = await fetch(`${root}/api/match`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "pickPlot", matchId, plotId, playerName }),
+      });
+      const data = (await response.json()) as { ok?: boolean; plots?: Record<string, string | null>; error?: string };
+
+      if (!response.ok || !data.ok) throw new Error(data.error || "Unable to claim plot");
+      return { plots: data.plots ?? {} };
+    },
+
+    async getMatch(matchId: string) {
+      const response = await fetch(`${root}/api/match?matchId=${encodeURIComponent(matchId)}`);
+      const data = (await response.json()) as {
+        exists?: boolean;
+        matchId?: string;
+        lengthMinutes?: number;
+        plots?: Record<string, string | null>;
+        error?: string;
+      };
+      if (!response.ok) {
+        throw new Error(data.error || "Match lookup failed");
+      }
+      return data;
     },
   };
 }
