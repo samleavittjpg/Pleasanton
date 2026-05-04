@@ -25,25 +25,36 @@ body {
   font-family: var(--font-pixel), "Courier New", Courier, monospace;
 }
 
-.landing-scene {
-  position: relative;
-  overflow: hidden;
-  background:
-    radial-gradient(circle at 50% 18%, #79e6ff 0%, #5dc8f1 30%, #3f96df 56%, #245cae 100%);
+/* Landing: seamless cloud drift (matches create-match cloud styling) */
+.landing-clouds-marquee {
+  display: flex;
+  width: 200%;
+  height: 100%;
+  min-height: 240px;
+  will-change: transform;
+  animation: landing-clouds-drift 90s linear infinite;
 }
 
-.landing-scene::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background:
-    radial-gradient(circle at 12% 16%, rgb(255 255 255 / 0.65) 0 2px, transparent 2px),
-    radial-gradient(circle at 75% 10%, rgb(255 255 255 / 0.7) 0 2px, transparent 2px),
-    radial-gradient(circle at 88% 24%, rgb(255 255 255 / 0.7) 0 2px, transparent 2px),
-    linear-gradient(transparent 94%, rgb(255 255 255 / 0.08) 95%),
-    linear-gradient(90deg, rgb(255 255 255 / 0.04) 50%, transparent 50%);
-  background-size: auto, auto, auto, 100% 6px, 6px 100%;
+.landing-clouds-strip {
+  flex: 0 0 50%;
+  width: 50%;
+}
+
+@keyframes landing-clouds-drift {
+  from {
+    transform: translateX(-50%);
+  }
+
+  to {
+    transform: translateX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-clouds-marquee {
+    animation: none;
+    transform: translateX(0);
+  }
 }
 
 .pixel-kicker {
