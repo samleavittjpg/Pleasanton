@@ -85,6 +85,27 @@ body {
     0 10px 0 rgb(37 68 135 / 0.52);
 }
 
+/* Smaller landing title + fit-content so outline/shadow centers visually (e.g. house picker). */
+.landing-title-pick {
+  font-family: var(--font-pixel), "Courier New", Courier, monospace;
+  display: block;
+  width: fit-content;
+  max-width: min(100%, 100vw - 2rem);
+  margin-inline: auto;
+  text-align: center;
+  font-size: clamp(0.85rem, 4.2vw, 1.85rem);
+  letter-spacing: 0.02em;
+  line-height: 1.05;
+  white-space: nowrap;
+  color: #ffd765;
+  text-shadow:
+    -3px -3px 0 #714b11,
+    3px -3px 0 #714b11,
+    -3px 3px 0 #714b11,
+    3px 3px 0 #714b11,
+    0 6px 0 rgb(37 68 135 / 0.45);
+}
+
 .pixel-btn {
   border: 3px solid #234368;
   border-radius: 0;
