@@ -368,7 +368,7 @@ export default function CreateMatchPage() {
                       localStorage.setItem("pleasantonPlayerName", name.trim() || "Anonymous");
                       localStorage.setItem("pleasantonMatchId", created.matchId);
                       setStatus("");
-                      router.push(`/match/${created.matchId}`);
+                      router.push(`/neighborhood`);
                     } catch (e) {
                       setStatus(e instanceof Error ? e.message : "Create failed");
                     }
@@ -409,7 +409,7 @@ export default function CreateMatchPage() {
                       localStorage.setItem("pleasantonPlayerName", name.trim() || "Anonymous");
                       localStorage.setItem("pleasantonMatchId", code);
                       setStatus("");
-                      router.push(`/match/${code}`);
+                      router.push(`/neighborhood`);
                     } catch (e) {
                       setStatus(e instanceof Error ? e.message : "Join failed");
                     }
