@@ -14,9 +14,15 @@ type RequestResponse = {
   error?: string;
 };
 
-export function connectClient(baseUrl = "http://localhost:8787") {
+/**
+ * @param baseUrl - Omit or pass "" to call same-origin `/api/match` (Next.js route).
+ *  Use e.g. `http://localhost:8787` only if you run a separate match API server.
+ */
+export function connectClient(baseUrl = "") {
+  const matchPath = baseUrl.trim() === "" ? "/api/match" : `${baseUrl.replace(/\/$/, "")}/api/match`;
+
   async function request(payload: RequestPayload): Promise<RequestResponse> {
-    const response = await fetch(`${baseUrl}/api/match`, {
+    const response = await fetch(matchPath, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
