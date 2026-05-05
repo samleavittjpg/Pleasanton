@@ -1,7 +1,11 @@
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { NextConfig } from "next";
+
+const require = createRequire(import.meta.url);
+const { tmpDevDistDir } = require("./scripts/dev-dist-dir.cjs") as { tmpDevDistDir: () => string };
 
 function resolveRepoRoot(): string {
   const webDir = path.dirname(fileURLToPath(import.meta.url));
@@ -22,8 +26,10 @@ function resolveRepoRoot(): string {
 // npm workspaces hoist `next` to the repo root. Turbopack must use that root (absolute path)
 // or it can mis-infer `web/src/app` and fail to resolve `next/package.json`.
 const repoRoot = resolveRepoRoot();
+const useTempDistForDev = process.env.NEXT_DEV_DIST_TMP === "1";
 
 const nextConfig: NextConfig = {
+  ...(useTempDistForDev ? { distDir: tmpDevDistDir() } : {}),
   // Turbopack’s on-disk cache (.sst under `.next`) can fail with ENOENT on some
   // machines (sync tools, partial deletes). Dev works fine without persisting it.
   experimental: {

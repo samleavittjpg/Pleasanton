@@ -5,6 +5,7 @@ import { fetchMe, loginAccount, logoutAccount, registerAccount, saveProfileToSer
 import type { AuthUser } from "@/lib/auth-client";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { HOA_WELCOME_SESSION_KEY } from "@/lib/hoa-welcome";
 import { connectClient } from "../../lib/ws";
 
 const SKIN_TONES = ["#f8d7b5", "#d9a97f", "#ad7f58", "#7f5a3f"] as const;
@@ -128,6 +129,7 @@ export default function CreateMatchPage() {
     try {
       const { matchId } = await client.createMatch(lengthMinutes);
       localStorage.setItem("pleasantonMatchId", matchId);
+      sessionStorage.setItem(HOA_WELCOME_SESSION_KEY, "1");
       setCustomizerStatus("Entering neighborhood…");
       router.push(`/match/${matchId}`);
     } catch (e) {

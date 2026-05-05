@@ -6,6 +6,7 @@
 # Build outputs
 /web/.next
 /web/out
+/web/var
 /server/dist
 
 # Logs and OS files

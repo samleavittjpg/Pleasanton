@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
+import { HOA_WELCOME_SESSION_KEY } from "@/lib/hoa-welcome";
 import { connectClient } from "../../../lib/ws";
 
 const PLOT_LABELS = [
@@ -39,6 +40,8 @@ export default function MatchNeighborhoodPage() {
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
+  const [hoaWelcomeOpen, setHoaWelcomeOpen] = useState(false);
+  const [hoaWelcomeSlide, setHoaWelcomeSlide] = useState(0);
   const dragPointerId = useRef<number | null>(null);
   const dragStartRef = useRef({ x: 0, y: 0 });
   const panStartRef = useRef({ x: 0, y: 0 });
@@ -66,6 +69,23 @@ export default function MatchNeighborhoodPage() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const v = sessionStorage.getItem(HOA_WELCOME_SESSION_KEY);
+    if (v === "1") {
+      sessionStorage.setItem(HOA_WELCOME_SESSION_KEY, "shown");
+      setHoaWelcomeOpen(true);
+    } else if (v === "shown") {
+      setHoaWelcomeOpen(true);
+    }
+  }, []);
+
+  const dismissHoaWelcome = () => {
+    sessionStorage.removeItem(HOA_WELCOME_SESSION_KEY);
+    setHoaWelcomeOpen(false);
+    setHoaWelcomeSlide(0);
+  };
 
   const claimPlot = async (plotIndex: string) => {
     setBusyPlot(plotIndex);
@@ -130,6 +150,48 @@ export default function MatchNeighborhoodPage() {
 
   return (
     <div className="h-screen w-screen overflow-hidden bg-zinc-400 text-zinc-100">
+      {hoaWelcomeOpen ? (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/55 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="hoa-welcome-title"
+        >
+          <div
+            className="hoa-welcome-panel max-h-[min(90vh,520px)] w-full max-w-lg overflow-y-auto border-4 border-black bg-[#f5d547] p-5 shadow-[6px_6px_0_#000] sm:p-7"
+            style={{ imageRendering: "pixelated" }}
+          >
+            {hoaWelcomeSlide === 0 ? (
+              <>
+                <h2 id="hoa-welcome-title" className="text-center text-[0.65rem] leading-relaxed text-black sm:text-xs">
+                  Welcome to your neighborhood! As the HOA Manager, you will complete your duties and manage residents
+                  ensuring their happiness.
+                </h2>
+                <div className="mt-6 flex justify-center">
+                  <button
+                    type="button"
+                    className="hoa-welcome-btn"
+                    onClick={() => setHoaWelcomeSlide(1)}
+                  >
+                    Next
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="text-center text-[0.65rem] leading-relaxed text-black sm:text-xs">
+                  Complete tasks, Screen residents, and keep the neighborhood nice and pleasant. Good Luck!
+                </p>
+                <div className="mt-6 flex justify-center">
+                  <button type="button" className="hoa-welcome-btn" onClick={dismissHoaWelcome}>
+                    Start
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      ) : null}
       <div className="relative h-full w-full bg-gradient-to-b from-zinc-300 via-zinc-400 to-zinc-500 p-4 sm:p-6">
         <div className="pointer-events-none absolute inset-0 overflow-hidden">
           <div className="absolute left-[8%] top-[8%] h-10 w-24 border-2 border-zinc-100/70 bg-zinc-100/80 shadow-[6px_6px_0_rgba(161,161,170,0.45)]" />
