@@ -21,6 +21,7 @@ type PlacedHouse = {
   kind: "base" | "mid" | "full";
   padIndex: number;
   boardId: string;
+  outline: string;
 };
 
 // This map is intentionally minimal: just the neighborhood pad tile and houses.
@@ -35,6 +36,13 @@ type Pad = { x: number; y: number; scale: number };
 // Bring pads closer together on the board (1.0 = exact baked positions).
 const PAD_CONTRACT = 0.75;
 const HOUSE_ROT_DEG = -1.2;
+// Population tuning
+const FILL_RATE = 0.62; // fraction of pads that get a house
+const LEVEL_WEIGHTS: Array<{ kind: PlacedHouse["kind"]; w: number; scaleMul: number }> = [
+  { kind: "base", w: 0.55, scaleMul: 0.96 },
+  { kind: "mid", w: 0.30, scaleMul: 1.02 },
+  { kind: "full", w: 0.15, scaleMul: 1.08 },
+];
 
 function getPads(): Pad[] {
   const pads: Pad[] = BOARD_PADS.map((p) => ({ ...p, scale: HOUSE_SCALE }));
@@ -246,20 +254,37 @@ export function IsoWorldMap({ playerVariantId }: Props) {
 
 function buildBoardHouses(boardId: string, variantId: HouseVariantId, boardX: number, boardY: number): PlacedHouse[] {
   const suffix = variantId.charAt(0).toUpperCase() + variantId.slice(1);
-  const base = `/houses/Base_House_${suffix}.png`;
-  const pads = getPads();
+  const srcByKind: Record<PlacedHouse["kind"], string> = {
+    base: `/houses/Base_House_${suffix}.png`,
+    mid: `/houses/Mid_House_${suffix}.png`,
+    full: `/houses/Full_House_${suffix}.png`,
+  };
+  const accent = (getHouseVariant(variantId) ?? HOUSE_VARIANTS[0]!).accentRgb;
+  const outline = brightenHex(accent, 0.55);
 
-  return pads
-    .map((p, i) => ({
+  const pads = getPads();
+  const houses: PlacedHouse[] = [];
+
+  for (let i = 0; i < pads.length; i++) {
+    const p = pads[i]!;
+    const rng = makeRng(`${boardId}:${variantId}:${i}`);
+    if (rng() > FILL_RATE) continue;
+
+    const pick = weightedPick(LEVEL_WEIGHTS, rng);
+    houses.push({
       id: `board-${boardId}-${variantId}-${i}`,
-      src: base,
+      src: srcByKind[pick.kind],
       x: boardX + p.x,
       y: boardY + p.y,
-      scale: p.scale,
-      kind: "base" as const,
+      scale: p.scale * pick.scaleMul,
+      kind: pick.kind,
       padIndex: i,
       boardId,
-    }));
+      outline,
+    });
+  }
+
+  return houses;
 }
 
 function MapHouses({
@@ -419,23 +444,60 @@ function MapHouses({
             style={{
               width: `${Math.round(512 * h.scale)}px`,
               height: `${Math.round(512 * h.scale)}px`,
-              backgroundImage: `url(${h.src})`,
-              backgroundRepeat: "no-repeat",
-              backgroundPosition: "center",
-              backgroundSize: "contain",
-              imageRendering: "pixelated",
               transform: `rotate(${HOUSE_ROT_DEG}deg)`,
-              filter:
-                hoveredId === h.id
-                  ? "drop-shadow(0 12px 0 rgba(0,0,0,0.35)) drop-shadow(1px 0 0 rgba(255,255,255,0.95)) drop-shadow(-1px 0 0 rgba(255,255,255,0.95)) drop-shadow(0 1px 0 rgba(255,255,255,0.95)) drop-shadow(0 -1px 0 rgba(255,255,255,0.95))"
-                  : "drop-shadow(0 12px 0 rgba(0,0,0,0.35))",
               pointerEvents: "none",
             }}
-          />
+          >
+            {hoveredId === h.id ? (
+              <div
+                className="absolute inset-0"
+                style={{
+                  backgroundColor: h.outline,
+                  // Use the sprite itself as a mask, then slightly scale up for a clean outline.
+                  WebkitMaskImage: `url(${h.src})`,
+                  WebkitMaskRepeat: "no-repeat",
+                  WebkitMaskPosition: "center",
+                  WebkitMaskSize: "contain",
+                  maskImage: `url(${h.src})`,
+                  maskRepeat: "no-repeat",
+                  maskPosition: "center",
+                  maskSize: "contain",
+                  transform: "scale(1.06)",
+                  transformOrigin: "50% 50%",
+                  opacity: 0.98,
+                }}
+              />
+            ) : null}
+
+            <div
+              className="absolute inset-0"
+              style={{
+                backgroundImage: `url(${h.src})`,
+                backgroundRepeat: "no-repeat",
+                backgroundPosition: "center",
+                backgroundSize: "contain",
+                imageRendering: "pixelated",
+              }}
+            />
+          </div>
         </div>
       ))}
     </div>
   );
+}
+
+function brightenHex(hex: string, amount: number): string {
+  // amount: 0..1, where 1 = white
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return "rgba(255,255,255,0.95)";
+  const n = parseInt(m[1], 16);
+  const r = (n >> 16) & 0xff;
+  const g = (n >> 8) & 0xff;
+  const b = n & 0xff;
+  const rr = Math.round(r + (255 - r) * amount);
+  const gg = Math.round(g + (255 - g) * amount);
+  const bb = Math.round(b + (255 - b) * amount);
+  return `rgba(${rr},${gg},${bb},0.98)`;
 }
 
 function familyForHouse(boardId: string, padIndex: number): HouseFamilyInfo {
@@ -475,4 +537,27 @@ function hash(input: string): number {
     h = Math.imul(h, 16777619);
   }
   return Math.abs(h);
+}
+
+function makeRng(seed: string) {
+  // Deterministic PRNG in [0,1)
+  let x = hash(seed) >>> 0;
+  return () => {
+    // xorshift32
+    x ^= x << 13;
+    x ^= x >>> 17;
+    x ^= x << 5;
+    // convert to [0,1)
+    return (x >>> 0) / 4294967296;
+  };
+}
+
+function weightedPick<T extends { w: number }>(items: readonly T[], rng: () => number): T {
+  const total = items.reduce((s, it) => s + it.w, 0);
+  let r = rng() * total;
+  for (const it of items) {
+    r -= it.w;
+    if (r <= 0) return it;
+  }
+  return items[items.length - 1]!;
 }
