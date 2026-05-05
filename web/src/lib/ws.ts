@@ -16,7 +16,7 @@ type RequestResponse = {
 
 /**
  * @param baseUrl - Omit or pass "" to call same-origin `/api/match` (Next.js route).
- *  Use e.g. `http://localhost:8787` only if you run a separate match API server.
+ * Use e.g. `http://localhost:8787` only if you run a separate match API server.
  */
 export function connectClient(baseUrl = "") {
   const matchPath = baseUrl.trim() === "" ? "/api/match" : `${baseUrl.replace(/\/$/, "")}/api/match`;
@@ -49,6 +49,33 @@ export function connectClient(baseUrl = "") {
       const data = await request({ action: "joinMatch", matchId });
       if (data.ok === false) throw new Error(data.error || "Unable to join match");
       return { ok: true };
+    },
+
+    async pickPlot(matchId: string, plotId: string, playerName: string) {
+      const response = await fetch(matchPath, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "pickPlot", matchId, plotId, playerName }),
+      });
+      const data = (await response.json()) as { ok?: boolean; plots?: Record<string, string | null>; error?: string };
+
+      if (!response.ok || !data.ok) throw new Error(data.error || "Unable to claim plot");
+      return { plots: data.plots ?? {} };
+    },
+
+    async getMatch(matchId: string) {
+      const response = await fetch(`${matchPath}?matchId=${encodeURIComponent(matchId)}`);
+      const data = (await response.json()) as {
+        exists?: boolean;
+        matchId?: string;
+        lengthMinutes?: number;
+        plots?: Record<string, string | null>;
+        error?: string;
+      };
+      if (!response.ok) {
+        throw new Error(data.error || "Match lookup failed");
+      }
+      return data;
     },
   };
 }

@@ -13,6 +13,9 @@
 # testing
 /coverage
 
+# local persisted accounts (dev / single Node instance only)
+/data/users-store.json
+
 # next.js
 /.next/
 /out/
