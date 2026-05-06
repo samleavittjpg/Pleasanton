@@ -219,6 +219,20 @@ body {
   border-color: #2a5168;
 }
 
+@keyframes trash-alert-bob {
+  0%,
+  100% {
+    transform: translate(-50%, -50%);
+  }
+  50% {
+    transform: translate(-50%, calc(-50% - 6px));
+  }
+}
+
+.trash-alert-bob {
+  animation: trash-alert-bob 1.15s ease-in-out infinite;
+}
+
 /* HOA welcome modal (neighborhood page) */
 .hoa-welcome-panel {
   font-family: var(--font-pixel), "Courier New", Courier, monospace;

@@ -22,6 +22,7 @@ type PlacedHouse = {
   padIndex: number;
   boardId: string;
   outline: string;
+  isPlayerTeam: boolean;
 };
 
 // This map is intentionally minimal: just the neighborhood pad tile and houses.
@@ -98,7 +99,7 @@ export function IsoWorldMap({ playerVariantId }: Props) {
         // Isometric-ish board placement (diamond grid of boards).
         const x = 820 + (c - r) * stepX;
         const y = 260 + (c + r) * stepY;
-        const houses = buildBoardHouses(cell.id, cell.variantId, x, y);
+        const houses = buildBoardHouses(cell.id, cell.variantId, x, y, isPlayer);
         boards.push({
           id: cell.id,
           ownerLabel: cell.ownerLabel,
@@ -199,9 +200,11 @@ export function IsoWorldMap({ playerVariantId }: Props) {
                 src="/Neighborhood.png"
                 width={900}
                 height={900}
-                priority={b.isPlayer}
+                loading={b.isPlayer ? "eager" : "lazy"}
+                fetchPriority={b.isPlayer ? "high" : "auto"}
                 unoptimized
                 className="[image-rendering:pixelated]"
+                style={{ width: "auto", height: "auto" }}
               />
 
               {/* Labels are visual-only, also non-interactive */}
@@ -252,7 +255,13 @@ export function IsoWorldMap({ playerVariantId }: Props) {
   );
 }
 
-function buildBoardHouses(boardId: string, variantId: HouseVariantId, boardX: number, boardY: number): PlacedHouse[] {
+function buildBoardHouses(
+  boardId: string,
+  variantId: HouseVariantId,
+  boardX: number,
+  boardY: number,
+  isPlayerTeam: boolean,
+): PlacedHouse[] {
   const suffix = variantId.charAt(0).toUpperCase() + variantId.slice(1);
   const srcByKind: Record<PlacedHouse["kind"], string> = {
     base: `/houses/Base_House_${suffix}.png`,
@@ -281,6 +290,7 @@ function buildBoardHouses(boardId: string, variantId: HouseVariantId, boardX: nu
       padIndex: i,
       boardId,
       outline,
+      isPlayerTeam,
     });
   }
 
@@ -297,10 +307,20 @@ function MapHouses({
   isPanning: () => boolean;
 }) {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [trashPileClicks, setTrashPileClicks] = useState<Record<string, number>>({});
+  const [mousePos, setMousePos] = useState<{ x: number; y: number }>({ x: -9999, y: -9999 });
   const hoverRaf = useRef<number | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const hoveredRef = useRef<string | null>(null);
   hoveredRef.current = hoveredId;
+  const hoveredHouse = hoveredId ? houses.find((x) => x.id === hoveredId) ?? null : null;
+  const hoveredClicksDone = hoveredHouse ? (trashPileClicks[hoveredHouse.id] ?? 0) : 0;
+  const hoveredRequiredClicks = hoveredHouse ? trashPileClicksRequired(hoveredHouse.id) : 0;
+  const hoveredActivePile =
+    hoveredHouse && hoveredHouse.isPlayerTeam
+      ? houseTrashPileFor(hoveredHouse, hoveredClicksDone >= hoveredRequiredClicks)
+      : null;
+  const broomCursor = hoveredClicksDone % 2 === 0 ? "/Icons/broom1.png" : "/Icons/broom2.png";
 
   // Cache decoded image alpha per src.
   const alphaCache = useRef(
@@ -405,10 +425,26 @@ function MapHouses({
         if (isPanning()) return;
         const h = houses.find((x) => x.id === id);
         if (!h) return;
+        const clicksDone = trashPileClicks[h.id] ?? 0;
+        const requiredClicks = trashPileClicksRequired(h.id);
+        const activePile = h.isPlayerTeam && houseTrashPileFor(h, clicksDone >= requiredClicks);
+        if (activePile) {
+          setTrashPileClicks((prev) => ({ ...prev, [h.id]: (prev[h.id] ?? 0) + 1 }));
+          e.preventDefault();
+          return;
+        }
         onHouseClick(h.src, familyForHouse(h.boardId, h.padIndex));
         e.preventDefault();
       }}
-      style={{ touchAction: "none" }}
+      style={{
+        touchAction: "none",
+        cursor: hoveredActivePile ? "none" : undefined,
+      }}
+      onMouseMove={(e) => {
+        const rect = containerRef.current?.getBoundingClientRect();
+        if (!rect) return;
+        setMousePos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+      }}
     >
       {DEBUG_HOUSE_ANCHOR && (
         <div className="absolute left-0 top-0 z-20 h-full w-full pointer-events-none">
@@ -426,6 +462,11 @@ function MapHouses({
         ))}
 
       {houses.map((h) => (
+        (() => {
+          const clicksDone = trashPileClicks[h.id] ?? 0;
+          const requiredClicks = trashPileClicksRequired(h.id);
+          const activePile = houseTrashPileFor(h, h.isPlayerTeam ? clicksDone >= requiredClicks : false);
+          return (
         <div
           key={h.id}
           data-house-button="1"
@@ -479,11 +520,171 @@ function MapHouses({
                 imageRendering: "pixelated",
               }}
             />
+
+            <>
+              {houseBinsFor(h).map((bin, idx) => (
+                <div
+                  key={`bin-${h.id}-${idx}`}
+                  className="absolute"
+                  style={{
+                    left: `${Math.round(bin.x * h.scale)}px`,
+                    top: `${Math.round(bin.y * h.scale)}px`,
+                    width: `${Math.round(bin.w * h.scale)}px`,
+                    height: `${Math.round(bin.h * h.scale)}px`,
+                    transform: "translate(-50%, -50%)",
+                    pointerEvents: "none",
+                    backgroundImage: `url(${bin.src})`,
+                    backgroundRepeat: "no-repeat",
+                    backgroundPosition: "center",
+                    backgroundSize: "contain",
+                    imageRendering: "pixelated",
+                  }}
+                />
+              ))}
+
+              {activePile ? (
+                <div
+                  className="absolute"
+                  style={{
+                    left: `${Math.round(activePile.x * h.scale)}px`,
+                    top: `${Math.round(activePile.y * h.scale)}px`,
+                    width: `${Math.round(activePile.w * h.scale)}px`,
+                    height: `${Math.round(activePile.h * h.scale)}px`,
+                    transform: "translate(-50%, -50%)",
+                    backgroundImage: `url(${activePile.src})`,
+                    backgroundRepeat: "no-repeat",
+                    backgroundPosition: "center",
+                    backgroundSize: "contain",
+                    imageRendering: "pixelated",
+                    // Keep spawned trash piles visibly highlighted by team color.
+                    filter: `drop-shadow(0 0 1px ${h.outline}) drop-shadow(0 0 6px ${h.outline})`,
+                    pointerEvents: "none",
+                  }}
+                />
+              ) : null}
+            </>
           </div>
+
+          {h.isPlayerTeam && activePile ? (
+            <div
+              className="trash-alert-bob absolute"
+              aria-hidden
+              style={{
+                left: `${Math.round(512 * h.scale * 0.28)}px`,
+                top: `${Math.round(512 * h.scale * 0.08)}px`,
+                width: `${Math.max(28, Math.round(72 * h.scale))}px`,
+                height: `${Math.max(28, Math.round(72 * h.scale))}px`,
+                transform: "translate(-50%, -50%)",
+                backgroundImage: "url('/Icons/exclamationicon.png')",
+                backgroundRepeat: "no-repeat",
+                backgroundPosition: "center",
+                backgroundSize: "contain",
+                imageRendering: "pixelated",
+                pointerEvents: "none",
+              }}
+            />
+          ) : null}
         </div>
+          );
+        })()
       ))}
+
+      {hoveredActivePile ? (
+        <div
+          aria-hidden
+          style={{
+            position: "absolute",
+            left: `${Math.round(mousePos.x)}px`,
+            top: `${Math.round(mousePos.y)}px`,
+            width: "100px",
+            height: "100px",
+            transform: "translate(-6px, -24px)",
+            backgroundImage: `url('${broomCursor}')`,
+            backgroundRepeat: "no-repeat",
+            backgroundPosition: "center",
+            backgroundSize: "contain",
+            imageRendering: "pixelated",
+            pointerEvents: "none",
+            zIndex: 9999,
+          }}
+        />
+      ) : null}
     </div>
   );
+}
+
+type TrashSprite = { src: string; x: number; y: number; w: number; h: number };
+
+const LIGHT_BINS = ["/bins/lightbin1.png", "/bins/lightbin2.png", "/bins/lightbin3.png"] as const;
+const MEDIUM_BINS = ["/bins/mediumbin1.png", "/bins/mediumbin2.png", "/bins/mediumbin3.png"] as const;
+const LARGE_BINS = [
+  "/bins/largebin1.png",
+  "/bins/largebin2.png",
+  "/bins/largebin3.png",
+  "/bins/largebin4.png",
+  "/bins/largebin5.png",
+  "/bins/largebin6.png",
+] as const;
+const EXTRA_LARGE_BINS = [
+  "/bins/extralargebin1.png",
+  "/bins/extralargebin2.png",
+  "/bins/extralargebin3.png",
+  "/bins/extralargebin4.png",
+  "/bins/extralargebin5.png",
+  "/bins/extralargebin6.png",
+] as const;
+const TRASH_PILES = ["/bins/trashpile1.png"] as const;
+
+const TRASH_ANCHOR: Record<PlacedHouse["kind"], { x: number; y: number }> = {
+  // local offsets in a 512x512 house sprite box
+  base: { x: 200, y: 397 },
+  mid: { x: 190, y: 380 },
+  full: { x: 195, y: 380 },
+};
+
+function houseBinsFor(h: PlacedHouse): TrashSprite[] {
+  const family = familyForHouse(h.boardId, h.padIndex);
+  const trashLbs = Math.max(1, Math.min(30, family.dailyAvgTrash));
+  const anchor = TRASH_ANCHOR[h.kind];
+  const rng = makeRng(`${h.id}:bin`);
+  if (trashLbs <= 7) {
+    const src = LIGHT_BINS[Math.floor(rng() * LIGHT_BINS.length)]!;
+    return [{ src, x: anchor.x - 10, y: anchor.y - 6, w: 72, h: 62 }];
+  }
+  if (trashLbs <= 14) {
+    const src = MEDIUM_BINS[Math.floor(rng() * MEDIUM_BINS.length)]!;
+    return [{ src, x: anchor.x - 8, y: anchor.y - 4, w: 84, h: 70 }];
+  }
+  if (trashLbs <= 22) {
+    const src = LARGE_BINS[Math.floor(rng() * LARGE_BINS.length)]!;
+    return [{ src, x: anchor.x, y: anchor.y, w: 106, h: 86 }];
+  }
+
+  const src = EXTRA_LARGE_BINS[Math.floor(rng() * EXTRA_LARGE_BINS.length)]!;
+  return [{ src, x: anchor.x + 6, y: anchor.y + 4, w: 118, h: 94 }];
+}
+
+function houseTrashPileFor(h: PlacedHouse, cleared: boolean): TrashSprite | null {
+  if (cleared) return null;
+  const family = familyForHouse(h.boardId, h.padIndex);
+  const anchor = TRASH_ANCHOR[h.kind];
+  const rng = makeRng(`${h.id}:pile`);
+  const happiness = tempHappinessScore(family.dailyAvgTrash, family.complaintsPerWeek);
+  const pileChance = Math.max(0, 0.34 - happiness * 0.0034); // higher happiness => lower pile chance
+  if (rng() > pileChance) return null;
+
+  const src = TRASH_PILES[Math.floor(rng() * TRASH_PILES.length)]!;
+  return { src, x: anchor.x + -100, y: anchor.y + -90, w: 95, h: 80 };
+}
+
+function tempHappinessScore(avgTrashLbs: number, complaintsPerWeek: number): number {
+  // temporary stand-in until backend provides explicit happiness
+  const score = 100 - avgTrashLbs * 2.1 - complaintsPerWeek * 12;
+  return Math.max(0, Math.min(100, score));
+}
+
+function trashPileClicksRequired(houseId: string): number {
+  return 3 + (hash(`${houseId}:cleanup`) % 3); // 3..5
 }
 
 function brightenHex(hex: string, amount: number): string {
@@ -518,12 +719,12 @@ function familyForHouse(boardId: string, padIndex: number): HouseFamilyInfo {
   const seed = hash(`${boardId}:${padIndex}`);
   const lastName = lastNames[seed % lastNames.length]!;
   const dailyMoneyContribution = 50 + (seed % 200);
-  const dailyAvgTrash = ((seed % 35) / 10) * 2; // 0..7.0
+  const dailyAvgTrash = 1 + (seed % 30); // 1..30 lbs
   const complaintsPerWeek = seed % 6; // 0..5
   const notes =
     complaintsPerWeek >= 4
       ? "Repeated violations: trash bins visible from street. Neighbor reports loud leaf blower usage."
-      : dailyAvgTrash > 4
+      : dailyAvgTrash > 18
         ? "Occasional overflow on pickup day. Recommend a warning letter."
         : "Mostly compliant. Lawn edges could be sharper.";
 
