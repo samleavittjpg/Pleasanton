@@ -4,10 +4,10 @@
   "private": true,
   "scripts": {
     "postinstall": "node ./scripts/ensure-hoisted-native-packages.cjs",
-    "dev": "node ./scripts/sync-tsconfig-next-types.cjs && NEXT_DEV_DIST_TMP=1 next dev --webpack",
-    "dev:turbo": "node ./scripts/sync-tsconfig-next-types.cjs && NEXT_DEV_DIST_TMP=1 next dev",
-    "dev:fresh": "node ./scripts/clean-next.cjs && node ./scripts/sync-tsconfig-next-types.cjs && NEXT_DEV_DIST_TMP=1 next dev --webpack",
-    "dev:webpack": "node ./scripts/sync-tsconfig-next-types.cjs && NEXT_DEV_DIST_TMP=1 next dev --webpack",
+    "dev": "node ./scripts/sync-tsconfig-next-types.cjs && cross-env NEXT_DEV_DIST_TMP=1 next dev --webpack",
+    "dev:turbo": "node ./scripts/sync-tsconfig-next-types.cjs && cross-env NEXT_DEV_DIST_TMP=1 next dev",
+    "dev:fresh": "node ./scripts/clean-next.cjs && node ./scripts/sync-tsconfig-next-types.cjs && cross-env NEXT_DEV_DIST_TMP=1 next dev --webpack",
+    "dev:webpack": "node ./scripts/sync-tsconfig-next-types.cjs && cross-env NEXT_DEV_DIST_TMP=1 next dev --webpack",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"
@@ -19,6 +19,7 @@
     "react-dom": "19.2.4"
   },
   "devDependencies": {
+    "cross-env": "^7.0.3",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

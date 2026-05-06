@@ -5,6 +5,8 @@
 
 # Build outputs
 /web/.next
+/web/.pleasanton-next-dev
+/web/.pleasanton-next-dev-*
 /web/out
 /web/var
 /server/dist

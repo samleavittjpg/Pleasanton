@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import type { NextConfig } from "next";
 
 const require = createRequire(import.meta.url);
-const { tmpDevDistDir } = require("./scripts/dev-dist-dir.cjs") as { tmpDevDistDir: () => string };
+const { devDistDirName } = require("./scripts/dev-dist-dir.cjs") as { devDistDirName: () => string };
 
 function resolveRepoRoot(): string {
   const webDir = path.dirname(fileURLToPath(import.meta.url));
@@ -28,8 +28,12 @@ function resolveRepoRoot(): string {
 const repoRoot = resolveRepoRoot();
 const useTempDistForDev = process.env.NEXT_DEV_DIST_TMP === "1";
 
+// Keep dev output under `web/` (not %TEMP%). A distDir outside `web` makes webpack emit
+// bundles that fail to resolve hoisted `next` / `react` from the monorepo workspace.
+const devDistDir = useTempDistForDev ? devDistDirName() : undefined;
+
 const nextConfig: NextConfig = {
-  ...(useTempDistForDev ? { distDir: tmpDevDistDir() } : {}),
+  ...(devDistDir ? { distDir: devDistDir } : {}),
   // Turbopack’s on-disk cache (.sst under `.next`) can fail with ENOENT on some
   // machines (sync tools, partial deletes). Dev works fine without persisting it.
   experimental: {

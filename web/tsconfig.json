@@ -36,10 +36,8 @@
     "**/*.mts",
     "**/*.ts",
     "**/*.tsx",
-    "/var/folders/dc/qty49k9s42g35fsrd1pbgsq00000gn/T/pleasanton-next-dev-744cefe1b9d5/types/**/*.ts",
-    "/var/folders/dc/qty49k9s42g35fsrd1pbgsq00000gn/T/pleasanton-next-dev-744cefe1b9d5/dev/types/**/*.ts",
-    "C:\\Users\\jkcam\\AppData\\Local\\Temp\\pleasanton-next-dev-72c1f3299785/types/**/*.ts",
-    "C:\\Users\\jkcam\\AppData\\Local\\Temp\\pleasanton-next-dev-72c1f3299785/dev/types/**/*.ts"
+    ".pleasanton-next-dev/types/**/*.ts",
+    ".pleasanton-next-dev/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules"

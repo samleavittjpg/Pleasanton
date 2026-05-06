@@ -2,17 +2,27 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { tmpDevDistDir } = require("./dev-dist-dir.cjs");
-
 const tsconfigPath = path.join(__dirname, "..", "tsconfig.json");
 const raw = fs.readFileSync(tsconfigPath, "utf8");
 const tsconfig = JSON.parse(raw);
 
-const includes = Array.isArray(tsconfig.include) ? [...tsconfig.include] : [];
-const distDir = tmpDevDistDir();
-const required = [`${distDir}/types/**/*.ts`, `${distDir}/dev/types/**/*.ts`];
+let includes = Array.isArray(tsconfig.include) ? [...tsconfig.include] : [];
 
-let changed = false;
+/** Only portable patterns; never commit machine-specific absolute paths. */
+const required = [".pleasanton-next-dev/types/**/*.ts", ".pleasanton-next-dev/dev/types/**/*.ts"];
+
+function dropStaleDevDistIncludes(entry) {
+  const s = String(entry);
+  if (s.includes("pleasanton-next-dev")) return false;
+  if (/^[A-Za-z]:[\\/]/.test(s)) return false;
+  if (s.startsWith("/var/") || s.startsWith("/private/var/")) return false;
+  return true;
+}
+
+const nextIncludes = includes.filter(dropStaleDevDistIncludes);
+let changed = includes.length !== nextIncludes.length;
+includes = nextIncludes;
+
 for (const entry of required) {
   if (!includes.includes(entry)) {
     includes.push(entry);
