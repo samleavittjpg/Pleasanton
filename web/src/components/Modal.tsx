@@ -21,6 +21,7 @@ export function Modal(props: { title: string; onClose: () => void; children: Rea
 
   return createPortal(
     <div
+      data-modal-root="1"
       className="fixed inset-0 z-[999] flex items-center justify-center bg-black/70 p-6"
       role="dialog"
       aria-modal="true"
@@ -30,6 +31,7 @@ export function Modal(props: { title: string; onClose: () => void; children: Rea
       }}
     >
       <div
+        data-modal-root="1"
         className="w-full max-w-xl overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950 shadow-2xl"
         onMouseDown={(e) => e.stopPropagation()}
       >

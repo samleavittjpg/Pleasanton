@@ -7,6 +7,7 @@ import { getHouseVariant, HOUSE_VARIANTS } from "../../lib/houseCatalog";
 import { BOARD_PADS } from "../../lib/boardPads";
 import { buildDefaultWorld, CENTER_COL, CENTER_ROW } from "../../lib/worldMap";
 import { HouseInfoModal, type HouseFamilyInfo, type HouseRuntimeView, type TenantApplicant } from "../house/HouseInfoModal";
+import { Modal } from "../Modal";
 
 type Props = {
   playerVariantId: HouseVariantId;
@@ -59,6 +60,13 @@ const LEVEL_WEIGHTS: Array<{ kind: PlacedHouse["kind"]; w: number; scaleMul: num
   { kind: "mid", w: 0.30, scaleMul: 1.02 },
   { kind: "full", w: 0.15, scaleMul: 1.08 },
 ];
+const SCALE_BY_KIND: Record<PlacedHouse["kind"], number> = {
+  base: 0.96,
+  mid: 1.02,
+  full: 1.08,
+};
+const MID_UPGRADE_COST = 500;
+const FULL_UPGRADE_COST = 1200;
 
 function getPads(): Pad[] {
   const pads: Pad[] = BOARD_PADS.map((p) => ({ ...p, scale: HOUSE_SCALE }));
@@ -87,6 +95,8 @@ export function IsoWorldMap({ playerVariantId }: Props) {
   const [selectedHouseId, setSelectedHouseId] = useState<string | null>(null);
   const [houseSession, setHouseSession] = useState<Record<string, HouseSessionState>>({});
   const [eventFeed, setEventFeed] = useState<string[]>([]);
+  const [isBuyModalOpen, setIsBuyModalOpen] = useState(false);
+  const [playerSlotKinds, setPlayerSlotKinds] = useState<Array<PlacedHouse["kind"] | null>>(() => initPlayerSlotKinds(playerVariantId));
 
   const scene = useMemo(() => {
     const grid = buildDefaultWorld(playerVariantId);
@@ -113,7 +123,7 @@ export function IsoWorldMap({ playerVariantId }: Props) {
         // Isometric-ish board placement (diamond grid of boards).
         const x = 820 + (c - r) * stepX;
         const y = 260 + (c + r) * stepY;
-        const houses = buildBoardHouses(cell.id, cell.variantId, x, y, isPlayer);
+        const houses = buildBoardHouses(cell.id, cell.variantId, x, y, isPlayer, isPlayer ? playerSlotKinds : undefined);
         boards.push({
           id: cell.id,
           ownerLabel: cell.ownerLabel,
@@ -127,6 +137,10 @@ export function IsoWorldMap({ playerVariantId }: Props) {
       }
     }
     return { boards, allHouses };
+  }, [playerVariantId, playerSlotKinds]);
+
+  useEffect(() => {
+    setPlayerSlotKinds(initPlayerSlotKinds(playerVariantId));
   }, [playerVariantId]);
 
   useEffect(() => {
@@ -254,6 +268,16 @@ export function IsoWorldMap({ playerVariantId }: Props) {
         recentIncidents: selectedSession?.recentIncidents ?? [],
       }
     : null;
+  const playerBoard = scene.boards.find((b) => b.isPlayer) ?? null;
+  const updatePlayerSlotKind = (slotIdx: number, nextKind: PlacedHouse["kind"]) => {
+    setPlayerSlotKinds((prev) => {
+      if (prev[slotIdx] === nextKind) return prev;
+      const next = [...prev];
+      next[slotIdx] = nextKind;
+      return next;
+    });
+    setEventFeed((prev) => [`Slot ${slotIdx + 1} upgraded to ${nextKind}.`, ...prev].slice(0, 4));
+  };
 
   return (
     <div
@@ -263,10 +287,12 @@ export function IsoWorldMap({ playerVariantId }: Props) {
       onPointerDown={(e) => {
         const el = scrollRef.current;
         if (!el) return;
-        if (selectedHouseId) return;
+        if (selectedHouseId || isBuyModalOpen) return;
         // If clicking on a house button, let it handle the click.
         const target = e.target as HTMLElement;
+        if (target.closest("[data-modal-root='1']")) return;
         if (target.closest("[data-house-button='1']")) return;
+        if (target.closest("[data-ui-button='1']")) return;
 
         dragRef.current = {
           pointerId: e.pointerId,
@@ -396,6 +422,17 @@ export function IsoWorldMap({ playerVariantId }: Props) {
         </div>
       </div>
 
+      <button
+        type="button"
+        data-ui-button="1"
+        className="fixed left-4 top-1/2 z-[120] -translate-y-1/2 rounded-md transition duration-150 ease-out hover:scale-105 hover:brightness-110 hover:drop-shadow-[0_0_10px_rgba(120,160,255,0.65)] active:scale-95 active:brightness-95"
+        onClick={() => setIsBuyModalOpen(true)}
+        aria-label="Open house buy and upgrade menu"
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img alt="" src="/Icons/housebuy.png" className="h-auto w-[72px] [image-rendering:pixelated]" />
+      </button>
+
       <HouseInfoModal
         isOpen={!!selectedHouse && !!selectedRuntime}
         onClose={() => setSelectedHouseId(null)}
@@ -476,6 +513,56 @@ export function IsoWorldMap({ playerVariantId }: Props) {
         }}
       />
 
+      {isBuyModalOpen ? (
+        <Modal title="House Buy / Upgrade" onClose={() => setIsBuyModalOpen(false)}>
+          <div className="grid max-h-[70vh] gap-3 overflow-y-auto sm:grid-cols-2">
+            {playerSlotKinds.map((kind, idx) => {
+              const canUpgradeToMid = kind === "base";
+              const canUpgradeToFull = kind === "base" || kind === "mid";
+              return (
+                <div key={`buy-slot-${idx}`} className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-3">
+                  <div className="text-xs uppercase tracking-wide text-zinc-400">Slot {idx + 1}</div>
+                  <div className="mt-1 text-sm font-semibold text-zinc-100">
+                    {kind ? `${kind} house` : "Empty lot"}
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {!kind ? (
+                      <button
+                        type="button"
+                        className="rounded-md border border-cyan-500/40 bg-cyan-600/20 px-2 py-1 text-xs font-semibold text-cyan-200 hover:bg-cyan-600/30"
+                        onClick={() => updatePlayerSlotKind(idx, "base")}
+                      >
+                        Buy Base (temp free)
+                      </button>
+                    ) : null}
+                    {canUpgradeToMid ? (
+                      <button
+                        type="button"
+                        className="rounded-md border border-amber-500/40 bg-amber-600/20 px-2 py-1 text-xs font-semibold text-amber-200 hover:bg-amber-600/30"
+                        onClick={() => updatePlayerSlotKind(idx, "mid")}
+                      >
+                        Upgrade to Mid (${MID_UPGRADE_COST})
+                      </button>
+                    ) : null}
+                    {canUpgradeToFull ? (
+                      <button
+                        type="button"
+                        className="rounded-md border border-emerald-500/40 bg-emerald-600/20 px-2 py-1 text-xs font-semibold text-emerald-200 hover:bg-emerald-600/30"
+                        onClick={() => updatePlayerSlotKind(idx, "full")}
+                      >
+                        Upgrade to Full (${FULL_UPGRADE_COST})
+                      </button>
+                    ) : null}
+                    {kind === "full" ? <span className="text-xs font-semibold text-emerald-300">Maxed out</span> : null}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="mt-3 text-xs text-zinc-400">Temporary economy mode: upgrades are always allowed for prototyping.</div>
+        </Modal>
+      ) : null}
+
     </div>
   );
 }
@@ -486,18 +573,34 @@ function buildBoardHouses(
   boardX: number,
   boardY: number,
   isPlayerTeam: boolean,
+  playerSlots?: Array<PlacedHouse["kind"] | null>,
 ): PlacedHouse[] {
-  const suffix = variantId.charAt(0).toUpperCase() + variantId.slice(1);
-  const srcByKind: Record<PlacedHouse["kind"], string> = {
-    base: `/houses/Base_House_${suffix}.png`,
-    mid: `/houses/Mid_House_${suffix}.png`,
-    full: `/houses/Full_House_${suffix}.png`,
-  };
   const accent = (getHouseVariant(variantId) ?? HOUSE_VARIANTS[0]!).accentRgb;
   const outline = brightenHex(accent, 0.55);
 
   const pads = getPads();
   const houses: PlacedHouse[] = [];
+
+  if (isPlayerTeam && playerSlots) {
+    for (let i = 0; i < pads.length; i++) {
+      const p = pads[i]!;
+      const kind = playerSlots[i] ?? null;
+      if (!kind) continue;
+      houses.push({
+        id: `board-${boardId}-${variantId}-${i}`,
+        src: houseSrcForKind(variantId, kind),
+        x: boardX + p.x,
+        y: boardY + p.y,
+        scale: p.scale * SCALE_BY_KIND[kind],
+        kind,
+        padIndex: i,
+        boardId,
+        outline,
+        isPlayerTeam,
+      });
+    }
+    return houses;
+  }
 
   for (let i = 0; i < pads.length; i++) {
     const p = pads[i]!;
@@ -507,7 +610,7 @@ function buildBoardHouses(
     const pick = weightedPick(LEVEL_WEIGHTS, rng);
     houses.push({
       id: `board-${boardId}-${variantId}-${i}`,
-      src: srcByKind[pick.kind],
+      src: houseSrcForKind(variantId, pick.kind),
       x: boardX + p.x,
       y: boardY + p.y,
       scale: p.scale * pick.scaleMul,
@@ -956,6 +1059,29 @@ function randomIncident(): string {
     "Multiple residents reported petty theft concerns.",
   ];
   return events[Math.floor(Math.random() * events.length)]!;
+}
+
+function houseSrcForKind(variantId: HouseVariantId, kind: PlacedHouse["kind"]): string {
+  const suffix = variantId.charAt(0).toUpperCase() + variantId.slice(1);
+  if (kind === "mid") return `/houses/Mid_House_${suffix}.png`;
+  if (kind === "full") return `/houses/Full_House_${suffix}.png`;
+  return `/houses/Base_House_${suffix}.png`;
+}
+
+function initPlayerSlotKinds(variantId: HouseVariantId): Array<PlacedHouse["kind"] | null> {
+  const slots: Array<PlacedHouse["kind"] | null> = new Array(9).fill(null);
+  const indexes = Array.from({ length: 9 }, (_, i) => i);
+  const rng = makeRng(`player-start-slots:${variantId}`);
+  for (let i = indexes.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    const tmp = indexes[i]!;
+    indexes[i] = indexes[j]!;
+    indexes[j] = tmp;
+  }
+  for (let i = 0; i < 4; i++) {
+    slots[indexes[i]!] = "base";
+  }
+  return slots;
 }
 
 function brightenHex(hex: string, amount: number): string {
