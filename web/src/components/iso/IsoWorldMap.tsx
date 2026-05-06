@@ -6,7 +6,7 @@ import type { HouseVariantId } from "../../lib/houseCatalog";
 import { getHouseVariant, HOUSE_VARIANTS } from "../../lib/houseCatalog";
 import { BOARD_PADS } from "../../lib/boardPads";
 import { buildDefaultWorld, CENTER_COL, CENTER_ROW } from "../../lib/worldMap";
-import { HouseInfoModal, type HouseFamilyInfo } from "../house/HouseInfoModal";
+import { HouseInfoModal, type HouseFamilyInfo, type HouseRuntimeView, type TenantApplicant } from "../house/HouseInfoModal";
 
 type Props = {
   playerVariantId: HouseVariantId;
@@ -23,6 +23,21 @@ type PlacedHouse = {
   boardId: string;
   outline: string;
   isPlayerTeam: boolean;
+};
+
+type HouseSessionState = {
+  isPlayerTeam: boolean;
+  occupied: boolean;
+  tenant: HouseFamilyInfo | null;
+  tenantMalicious: boolean;
+  happiness: number;
+  applicants: TenantApplicant[];
+  recentIncidents: string[];
+  nextApplicantAt: number;
+  nextIncidentAt: number;
+  trashPileActive: boolean;
+  nextTrashSpawnAt: number;
+  nextTrashPenaltyAt: number;
 };
 
 // This map is intentionally minimal: just the neighborhood pad tile and houses.
@@ -69,10 +84,9 @@ export function IsoWorldMap({ playerVariantId }: Props) {
   } | null>(null);
   const [didDrag, setDidDrag] = useState(false);
 
-  const [selected, setSelected] = useState<{
-    houseSrc: string;
-    family: HouseFamilyInfo;
-  } | null>(null);
+  const [selectedHouseId, setSelectedHouseId] = useState<string | null>(null);
+  const [houseSession, setHouseSession] = useState<Record<string, HouseSessionState>>({});
+  const [eventFeed, setEventFeed] = useState<string[]>([]);
 
   const scene = useMemo(() => {
     const grid = buildDefaultWorld(playerVariantId);
@@ -128,6 +142,119 @@ export function IsoWorldMap({ playerVariantId }: Props) {
     });
   }, [playerVariantId]);
 
+  useEffect(() => {
+    setHouseSession((prev) => {
+      const next = { ...prev };
+      const now = Date.now();
+      for (const h of scene.allHouses) {
+        if (next[h.id]) continue;
+        const baseFamily = familyForHouse(h.boardId, h.padIndex);
+        next[h.id] = {
+          isPlayerTeam: h.isPlayerTeam,
+          occupied: true,
+          tenant: baseFamily,
+          tenantMalicious: false,
+          happiness: tempHappinessScore(baseFamily.dailyAvgTrash, baseFamily.complaintsPerWeek),
+          applicants: [],
+          recentIncidents: [],
+          nextApplicantAt: now + randomInRangeMs(10, 30),
+          nextIncidentAt: now + randomInRangeMs(60, 120),
+          trashPileActive: false,
+          nextTrashSpawnAt: now + randomInRangeMs(60, 90),
+          nextTrashPenaltyAt: now + randomInRangeMs(20, 40),
+        };
+      }
+      return next;
+    });
+  }, [scene.allHouses]);
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      const notices: string[] = [];
+      setHouseSession((prev) => {
+        const now = Date.now();
+        let changed = false;
+        const next: Record<string, HouseSessionState> = { ...prev };
+        for (const [houseId, s] of Object.entries(prev)) {
+          let item = s;
+
+          if (item.occupied && item.applicants.length > 0) {
+            item = {
+              ...item,
+              applicants: [],
+            };
+            changed = true;
+          }
+
+          if (item.isPlayerTeam && !item.occupied && item.applicants.length < 5 && now >= item.nextApplicantAt) {
+            item = {
+              ...item,
+              applicants: [...item.applicants, generateApplicant(houseId)],
+              nextApplicantAt: now + randomInRangeMs(10, 30),
+            };
+            changed = true;
+          }
+
+          if (item.occupied && now >= item.nextTrashSpawnAt && !item.trashPileActive) {
+            item = {
+              ...item,
+              trashPileActive: true,
+              nextTrashPenaltyAt: now + randomInRangeMs(20, 40),
+              nextTrashSpawnAt: now + randomInRangeMs(60, 90),
+            };
+            changed = true;
+          }
+
+          if (item.trashPileActive && now >= item.nextTrashPenaltyAt) {
+            item = {
+              ...item,
+              happiness: Math.max(0, item.happiness - 3),
+              nextTrashPenaltyAt: now + randomInRangeMs(20, 40),
+            };
+            notices.push("Uncleared trash pile lowered neighborhood happiness.");
+            changed = true;
+          }
+
+          if (item.isPlayerTeam && item.occupied && item.tenantMalicious && now >= item.nextIncidentAt) {
+            const event = randomIncident();
+            item = {
+              ...item,
+              happiness: Math.max(0, item.happiness - (5 + (hash(`${houseId}:${now}`) % 8))),
+              recentIncidents: [event, ...item.recentIncidents].slice(0, 5),
+              nextIncidentAt: now + randomInRangeMs(60, 120),
+            };
+            notices.push(event);
+            changed = true;
+          }
+
+          if (item !== s) next[houseId] = item;
+        }
+        return changed ? next : prev;
+      });
+      if (notices.length) {
+        setEventFeed((prev) => [...notices, ...prev].slice(0, 4));
+      }
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const selectedHouse = selectedHouseId ? scene.allHouses.find((h) => h.id === selectedHouseId) ?? null : null;
+  const selectedSession = selectedHouse ? houseSession[selectedHouse.id] : undefined;
+  const selectedRuntime: HouseRuntimeView | null = selectedHouse
+    ? {
+        occupied: selectedSession?.occupied ?? true,
+        tenant: selectedSession?.tenant ?? familyForHouse(selectedHouse.boardId, selectedHouse.padIndex),
+        applicants: selectedSession?.applicants ?? [],
+        happiness:
+          selectedSession?.happiness ??
+          tempHappinessScore(
+            familyForHouse(selectedHouse.boardId, selectedHouse.padIndex).dailyAvgTrash,
+            familyForHouse(selectedHouse.boardId, selectedHouse.padIndex).complaintsPerWeek,
+          ),
+        recentIncidents: selectedSession?.recentIncidents ?? [],
+      }
+    : null;
+
   return (
     <div
       ref={scrollRef}
@@ -136,7 +263,7 @@ export function IsoWorldMap({ playerVariantId }: Props) {
       onPointerDown={(e) => {
         const el = scrollRef.current;
         if (!el) return;
-        if (selected) return;
+        if (selectedHouseId) return;
         // If clicking on a house button, let it handle the click.
         const target = e.target as HTMLElement;
         if (target.closest("[data-house-button='1']")) return;
@@ -186,6 +313,18 @@ export function IsoWorldMap({ playerVariantId }: Props) {
           height: `${WORLD_H}px`,
         }}
       >
+        {eventFeed.length ? (
+          <div className="absolute right-4 top-4 z-50 w-[360px] space-y-2 pointer-events-none">
+            {eventFeed.map((event, idx) => (
+              <div
+                key={`${event}-${idx}`}
+                className="rounded-md border border-red-400/40 bg-red-900/35 px-3 py-2 text-xs text-red-100 shadow-lg backdrop-blur-sm"
+              >
+                {event}
+              </div>
+            ))}
+          </div>
+        ) : null}
         {/* Layer 1: all boards. Pointer-events disabled so they never block houses. */}
         <div className="absolute inset-0" style={{ pointerEvents: "none" }}>
           {scene.boards.map((b) => (
@@ -232,25 +371,111 @@ export function IsoWorldMap({ playerVariantId }: Props) {
           <MapHouses
             houses={scene.allHouses}
             isPanning={() => didDrag}
-            onHouseClick={(houseSrc, family) => setSelected({ houseSrc, family })}
+            onHouseClick={(houseId) => setSelectedHouseId(houseId)}
+            houseSession={houseSession}
+            onPileCleaned={(houseId) =>
+              setHouseSession((prev) => {
+                const s = prev[houseId];
+                if (!s || !s.occupied || !s.tenant) return prev;
+                return {
+                  ...prev,
+                  [houseId]: {
+                    ...s,
+                    trashPileActive: false,
+                    nextTrashSpawnAt: Date.now() + randomInRangeMs(60, 90),
+                    tenant: {
+                      ...s.tenant,
+                      dailyAvgTrash: Math.max(1, s.tenant.dailyAvgTrash - 4),
+                    },
+                    happiness: Math.min(100, s.happiness + 2),
+                  },
+                };
+              })
+            }
           />
         </div>
       </div>
 
       <HouseInfoModal
-        isOpen={!!selected}
-        onClose={() => setSelected(null)}
-        houseSrc={selected?.houseSrc ?? ""}
-        family={
-          selected?.family ?? {
-            lastName: "—",
-            dailyMoneyContribution: 0,
-            dailyAvgTrash: 0,
-            complaintsPerWeek: 0,
-            notes: "",
+        isOpen={!!selectedHouse && !!selectedRuntime}
+        onClose={() => setSelectedHouseId(null)}
+        houseSrc={selectedHouse?.src ?? ""}
+        houseLabel={selectedHouse ? `${familyForHouse(selectedHouse.boardId, selectedHouse.padIndex).lastName} family` : "House"}
+        canEvict={selectedHouse?.isPlayerTeam ?? false}
+        runtime={
+          selectedRuntime ?? {
+            occupied: true,
+            tenant: null,
+            applicants: [],
+            happiness: 0,
+            recentIncidents: [],
           }
         }
+        onEvict={() => {
+          if (!selectedHouse) return;
+          setHouseSession((prev) => {
+            const s = prev[selectedHouse.id];
+            if (!s || !s.isPlayerTeam) return prev;
+            return {
+              ...prev,
+              [selectedHouse.id]: {
+                ...s,
+                occupied: false,
+                tenant: null,
+                tenantMalicious: false,
+                trashPileActive: false,
+                nextApplicantAt: Date.now() + randomInRangeMs(10, 30),
+              },
+            };
+          });
+        }}
+        onAcceptApplicant={(applicantId) => {
+          if (!selectedHouse) return;
+          setHouseSession((prev) => {
+            const s = prev[selectedHouse.id];
+            if (!s) return prev;
+            const applicant = s.applicants.find((a) => a.id === applicantId);
+            if (!applicant) return prev;
+            const tenant: HouseFamilyInfo = {
+              lastName: applicant.name.split(" ").slice(-1)[0] ?? applicant.name,
+              dailyMoneyContribution: applicant.dailyContribution,
+              dailyAvgTrash: applicant.malicious ? 20 + (hash(applicant.id) % 10) : 6 + (hash(applicant.id) % 10),
+              complaintsPerWeek: applicant.malicious ? 3 + (hash(applicant.id) % 3) : hash(applicant.id) % 2,
+              notes: applicant.note,
+            };
+            return {
+              ...prev,
+              [selectedHouse.id]: {
+                ...s,
+                occupied: true,
+                tenant,
+                tenantMalicious: applicant.malicious,
+                applicants: [],
+                recentIncidents: [],
+                happiness: applicant.malicious ? Math.max(20, s.happiness - 10) : Math.min(100, s.happiness + 5),
+                nextIncidentAt: Date.now() + randomInRangeMs(60, 120),
+                nextTrashSpawnAt: Date.now() + randomInRangeMs(60, 90),
+              },
+            };
+          });
+        }}
+        onRejectApplicant={(applicantId) => {
+          if (!selectedHouse) return;
+          setHouseSession((prev) => {
+            const s = prev[selectedHouse.id];
+            if (!s) return prev;
+            return {
+              ...prev,
+              [selectedHouse.id]: {
+                ...s,
+                applicants: s.applicants.filter((a) => a.id !== applicantId),
+                nextApplicantAt: Date.now() + randomInRangeMs(10, 30),
+              },
+            };
+          });
+        }}
       />
+
     </div>
   );
 }
@@ -301,10 +526,14 @@ function MapHouses({
   houses,
   onHouseClick,
   isPanning,
+  houseSession,
+  onPileCleaned,
 }: {
   houses: PlacedHouse[];
-  onHouseClick: (houseSrc: string, family: HouseFamilyInfo) => void;
+  onHouseClick: (houseId: string) => void;
   isPanning: () => boolean;
+  houseSession: Record<string, HouseSessionState>;
+  onPileCleaned: (houseId: string) => void;
 }) {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [trashPileClicks, setTrashPileClicks] = useState<Record<string, number>>({});
@@ -318,7 +547,7 @@ function MapHouses({
   const hoveredRequiredClicks = hoveredHouse ? trashPileClicksRequired(hoveredHouse.id) : 0;
   const hoveredActivePile =
     hoveredHouse && hoveredHouse.isPlayerTeam
-      ? houseTrashPileFor(hoveredHouse, hoveredClicksDone >= hoveredRequiredClicks)
+      ? houseTrashPileFor(hoveredHouse, hoveredClicksDone >= hoveredRequiredClicks, houseSession[hoveredHouse.id])
       : null;
   const broomCursor = hoveredClicksDone % 2 === 0 ? "/Icons/broom1.png" : "/Icons/broom2.png";
 
@@ -427,13 +656,15 @@ function MapHouses({
         if (!h) return;
         const clicksDone = trashPileClicks[h.id] ?? 0;
         const requiredClicks = trashPileClicksRequired(h.id);
-        const activePile = h.isPlayerTeam && houseTrashPileFor(h, clicksDone >= requiredClicks);
+        const activePile = h.isPlayerTeam && houseTrashPileFor(h, clicksDone >= requiredClicks, houseSession[h.id]);
         if (activePile) {
-          setTrashPileClicks((prev) => ({ ...prev, [h.id]: (prev[h.id] ?? 0) + 1 }));
+          const nextClicks = clicksDone + 1;
+          if (nextClicks >= requiredClicks) onPileCleaned(h.id);
+          setTrashPileClicks((prev) => ({ ...prev, [h.id]: nextClicks }));
           e.preventDefault();
           return;
         }
-        onHouseClick(h.src, familyForHouse(h.boardId, h.padIndex));
+        onHouseClick(h.id);
         e.preventDefault();
       }}
       style={{
@@ -465,7 +696,14 @@ function MapHouses({
         (() => {
           const clicksDone = trashPileClicks[h.id] ?? 0;
           const requiredClicks = trashPileClicksRequired(h.id);
-          const activePile = houseTrashPileFor(h, h.isPlayerTeam ? clicksDone >= requiredClicks : false);
+          const session = houseSession[h.id];
+          const activePile = houseTrashPileFor(h, h.isPlayerTeam ? clicksDone >= requiredClicks : false, houseSession[h.id]);
+          const hasApplicantAlert = h.isPlayerTeam && session?.occupied === false && (session?.applicants.length ?? 0) > 0;
+          const hasIncidentAlert = h.isPlayerTeam && (session?.recentIncidents.length ?? 0) > 0;
+          const iconCount = Math.min(
+            3,
+            Number(Boolean(h.isPlayerTeam && activePile)) + Number(hasApplicantAlert) + Number(hasIncidentAlert),
+          );
           return (
         <div
           key={h.id}
@@ -565,12 +803,13 @@ function MapHouses({
             </>
           </div>
 
-          {h.isPlayerTeam && activePile ? (
+          {Array.from({ length: iconCount }).map((_, idx) => (
             <div
+              key={`alert-${h.id}-${idx}`}
               className="trash-alert-bob absolute"
               aria-hidden
               style={{
-                left: `${Math.round(512 * h.scale * 0.28)}px`,
+                left: `${Math.round(512 * h.scale * (0.28 + idx * 0.14))}px`,
                 top: `${Math.round(512 * h.scale * 0.08)}px`,
                 width: `${Math.max(28, Math.round(72 * h.scale))}px`,
                 height: `${Math.max(28, Math.round(72 * h.scale))}px`,
@@ -583,7 +822,7 @@ function MapHouses({
                 pointerEvents: "none",
               }}
             />
-          ) : null}
+          ))}
         </div>
           );
         })()
@@ -664,16 +903,11 @@ function houseBinsFor(h: PlacedHouse): TrashSprite[] {
   return [{ src, x: anchor.x + 6, y: anchor.y + 4, w: 118, h: 94 }];
 }
 
-function houseTrashPileFor(h: PlacedHouse, cleared: boolean): TrashSprite | null {
+function houseTrashPileFor(h: PlacedHouse, cleared: boolean, session?: HouseSessionState): TrashSprite | null {
   if (cleared) return null;
-  const family = familyForHouse(h.boardId, h.padIndex);
+  if (!session || !session.occupied || !session.trashPileActive) return null;
   const anchor = TRASH_ANCHOR[h.kind];
-  const rng = makeRng(`${h.id}:pile`);
-  const happiness = tempHappinessScore(family.dailyAvgTrash, family.complaintsPerWeek);
-  const pileChance = Math.max(0, 0.34 - happiness * 0.0034); // higher happiness => lower pile chance
-  if (rng() > pileChance) return null;
-
-  const src = TRASH_PILES[Math.floor(rng() * TRASH_PILES.length)]!;
+  const src = TRASH_PILES[hash(`${h.id}:pile`) % TRASH_PILES.length]!;
   return { src, x: anchor.x + -100, y: anchor.y + -90, w: 95, h: 80 };
 }
 
@@ -685,6 +919,43 @@ function tempHappinessScore(avgTrashLbs: number, complaintsPerWeek: number): num
 
 function trashPileClicksRequired(houseId: string): number {
   return 3 + (hash(`${houseId}:cleanup`) % 3); // 3..5
+}
+
+function randomInRangeMs(minSeconds: number, maxSeconds: number): number {
+  const span = Math.max(0, maxSeconds - minSeconds + 1);
+  const seconds = minSeconds + Math.floor(Math.random() * span);
+  return seconds * 1000;
+}
+
+function generateApplicant(houseId: string): TenantApplicant {
+  const first = ["Alex", "Sam", "Jamie", "Jordan", "Avery", "Taylor", "Morgan", "Casey", "Riley", "Quinn"];
+  const last = ["Nguyen", "Patel", "Garcia", "Kim", "Johnson", "Brown", "Chen", "Lopez", "Davis", "Singh"];
+  const id = `${houseId}:app:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
+  const seed = hash(id);
+  const malicious = (seed % 100) < 13; // ~13%
+  const lowContribution = malicious || (seed % 10) < 2;
+  const dailyContribution = lowContribution ? 40 + (seed % 26) : 90 + (seed % 180);
+  const notes = malicious
+    ? ["Former convicted felon for theft.", "Neighbors report suspicious late-night activity.", "History of missed payments and disputes."]
+    : ["Cooks amazing meals for the block.", "Local artist who draws neighborhood murals.", "Quiet tenant who volunteers on weekends."];
+  return {
+    id,
+    name: `${first[seed % first.length]} ${last[(seed >> 3) % last.length]}`,
+    dailyContribution,
+    note: notes[(seed >> 5) % notes.length]!,
+    malicious,
+  };
+}
+
+function randomIncident(): string {
+  const events = [
+    "Neighbors noticed packages going missing from porches.",
+    "Late-night noise complaints increased this week.",
+    "Suspicious loitering reported near shared walkways.",
+    "Street-facing bins were knocked over overnight.",
+    "Multiple residents reported petty theft concerns.",
+  ];
+  return events[Math.floor(Math.random() * events.length)]!;
 }
 
 function brightenHex(hex: string, amount: number): string {
