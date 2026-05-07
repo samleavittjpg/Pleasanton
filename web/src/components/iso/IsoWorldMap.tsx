@@ -50,6 +50,9 @@ type ToastNotice = {
 // This map is intentionally minimal: just the neighborhood pad tile and houses.
 const WORLD_W = 2600;
 const WORLD_H = 1800;
+const MAP_ZOOM_MIN = 0.55;
+const MAP_ZOOM_MAX = 1.35;
+const MAP_ZOOM_STEP = 0.1;
 const DEBUG_PADS = false;
 const HOUSE_SCALE = 0.38;
 // Move sprites vertically in pixels (obvious + reliable).
@@ -103,6 +106,35 @@ export function IsoWorldMap({ playerVariantId }: Props) {
   const [eventFeed, setEventFeed] = useState<ToastNotice[]>([]);
   const [isBuyModalOpen, setIsBuyModalOpen] = useState(false);
   const [playerSlotKinds, setPlayerSlotKinds] = useState<Array<PlacedHouse["kind"] | null>>(() => initPlayerSlotKinds(playerVariantId));
+  const [mapZoom, setMapZoom] = useState(1);
+
+  const bumpMapZoom = (delta: number) => {
+    const el = scrollRef.current;
+    setMapZoom((z) => {
+      const next = Math.min(MAP_ZOOM_MAX, Math.max(MAP_ZOOM_MIN, Math.round((z + delta) * 100) / 100));
+      if (next === z) return z;
+      if (!el) return next;
+      const w = el.clientWidth;
+      const h = el.clientHeight;
+      const cw = WORLD_W * z;
+      const ch = WORLD_H * z;
+      const anchorX = cw > 0 ? (el.scrollLeft + w / 2) / cw : 0.5;
+      const anchorY = ch > 0 ? (el.scrollTop + h / 2) / ch : 0.5;
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const e = scrollRef.current;
+          if (!e) return;
+          const nw = WORLD_W * next;
+          const nh = WORLD_H * next;
+          const maxL = Math.max(0, nw - e.clientWidth);
+          const maxT = Math.max(0, nh - e.clientHeight);
+          e.scrollLeft = Math.min(maxL, Math.max(0, anchorX * nw - e.clientWidth / 2));
+          e.scrollTop = Math.min(maxT, Math.max(0, anchorY * nh - e.clientHeight / 2));
+        });
+      });
+      return next;
+    });
+  };
 
   const scene = useMemo(() => {
     const grid = buildDefaultWorld(playerVariantId);
@@ -362,13 +394,23 @@ export function IsoWorldMap({ playerVariantId }: Props) {
       }}
     >
       <div
-        className="relative"
+        className="relative shrink-0"
         style={{
-          width: `${WORLD_W}px`,
-          height: `${WORLD_H}px`,
+          width: `${WORLD_W * mapZoom}px`,
+          height: `${WORLD_H * mapZoom}px`,
         }}
         onDragStart={(e) => e.preventDefault()}
       >
+        <div
+          className="absolute left-0 top-0"
+          style={{
+            width: `${WORLD_W}px`,
+            height: `${WORLD_H}px`,
+            transform: `scale(${mapZoom})`,
+            transformOrigin: "0 0",
+          }}
+          onDragStart={(e) => e.preventDefault()}
+        >
         <div
           aria-hidden
           className="pointer-events-none absolute inset-0 z-0"
@@ -461,6 +503,7 @@ export function IsoWorldMap({ playerVariantId }: Props) {
             }
           />
         </div>
+        </div>
       </div>
 
       <button
@@ -478,6 +521,33 @@ export function IsoWorldMap({ playerVariantId }: Props) {
           className="h-auto w-[72px] select-none transition duration-150 ease-out [-webkit-user-drag:none] [image-rendering:pixelated] group-hover:brightness-110 group-hover:[filter:drop-shadow(0_0_1px_rgba(34,74,180,0.98))_drop-shadow(0_0_3px_rgba(34,74,180,0.92))] group-active:brightness-95"
         />
       </button>
+
+      <div
+        className="fixed right-4 top-1/2 z-[120] flex -translate-y-1/2 flex-col gap-2"
+        data-ui-button="1"
+        aria-label="Map zoom controls"
+      >
+        <button
+          type="button"
+          data-ui-button="1"
+          className="neighborhood-zoom-btn"
+          aria-label="Zoom in"
+          disabled={mapZoom >= MAP_ZOOM_MAX - 1e-6}
+          onClick={() => bumpMapZoom(MAP_ZOOM_STEP)}
+        >
+          +
+        </button>
+        <button
+          type="button"
+          data-ui-button="1"
+          className="neighborhood-zoom-btn"
+          aria-label="Zoom out"
+          disabled={mapZoom <= MAP_ZOOM_MIN + 1e-6}
+          onClick={() => bumpMapZoom(-MAP_ZOOM_STEP)}
+        >
+          −
+        </button>
+      </div>
 
       <HouseInfoModal
         isOpen={!!selectedHouse && !!selectedRuntime}
