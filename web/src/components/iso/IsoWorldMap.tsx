@@ -63,7 +63,8 @@ type HappinessPoint = { tSec: number; mood: number };
 
 // This map is intentionally minimal: just the neighborhood pad tile and houses.
 const WORLD_W = 2600;
-const WORLD_H = 1800;
+// Extra vertical room so the tiled grass background doesn't "end" at the viewport bottom.
+const WORLD_H = 3200;
 const MAP_ZOOM_MIN = 0.55;
 const MAP_ZOOM_MAX = 1.35;
 const MAP_ZOOM_STEP = 0.1;
