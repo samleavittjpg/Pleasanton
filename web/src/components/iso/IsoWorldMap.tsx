@@ -41,6 +41,12 @@ type HouseSessionState = {
   nextTrashPenaltyAt: number;
 };
 
+type ToastNotice = {
+  id: string;
+  text: string;
+  expiresAt: number;
+};
+
 // This map is intentionally minimal: just the neighborhood pad tile and houses.
 const WORLD_W = 2600;
 const WORLD_H = 1800;
@@ -94,7 +100,7 @@ export function IsoWorldMap({ playerVariantId }: Props) {
 
   const [selectedHouseId, setSelectedHouseId] = useState<string | null>(null);
   const [houseSession, setHouseSession] = useState<Record<string, HouseSessionState>>({});
-  const [eventFeed, setEventFeed] = useState<string[]>([]);
+  const [eventFeed, setEventFeed] = useState<ToastNotice[]>([]);
   const [isBuyModalOpen, setIsBuyModalOpen] = useState(false);
   const [playerSlotKinds, setPlayerSlotKinds] = useState<Array<PlacedHouse["kind"] | null>>(() => initPlayerSlotKinds(playerVariantId));
 
@@ -225,7 +231,9 @@ export function IsoWorldMap({ playerVariantId }: Props) {
               happiness: Math.max(0, item.happiness - 3),
               nextTrashPenaltyAt: now + randomInRangeMs(20, 40),
             };
-            notices.push("Uncleared trash pile lowered neighborhood happiness.");
+            if (item.isPlayerTeam) {
+              notices.push("Uncleared trash pile lowered neighborhood happiness.");
+            }
             changed = true;
           }
 
@@ -246,11 +254,26 @@ export function IsoWorldMap({ playerVariantId }: Props) {
         return changed ? next : prev;
       });
       if (notices.length) {
-        setEventFeed((prev) => [...notices, ...prev].slice(0, 4));
+        const now = Date.now();
+        const nextNotices = notices.map((text, idx) => ({
+          id: `${now}-${idx}-${hash(text)}`,
+          text,
+          expiresAt: now + 7000,
+        }));
+        setEventFeed((prev) => [...nextNotices, ...prev].slice(0, 4));
       }
     }, 1000);
     return () => window.clearInterval(id);
   }, []);
+
+  useEffect(() => {
+    if (!eventFeed.length) return;
+    const id = window.setInterval(() => {
+      const now = Date.now();
+      setEventFeed((prev) => prev.filter((notice) => notice.expiresAt > now));
+    }, 500);
+    return () => window.clearInterval(id);
+  }, [eventFeed.length]);
 
   const selectedHouse = selectedHouseId ? scene.allHouses.find((h) => h.id === selectedHouseId) ?? null : null;
   const selectedSession = selectedHouse ? houseSession[selectedHouse.id] : undefined;
@@ -276,7 +299,9 @@ export function IsoWorldMap({ playerVariantId }: Props) {
       next[slotIdx] = nextKind;
       return next;
     });
-    setEventFeed((prev) => [`Slot ${slotIdx + 1} upgraded to ${nextKind}.`, ...prev].slice(0, 4));
+    const now = Date.now();
+    const noticeText = `Slot ${slotIdx + 1} upgraded to ${nextKind}.`;
+    setEventFeed((prev) => [{ id: `${now}-slot-${slotIdx}-${nextKind}`, text: noticeText, expiresAt: now + 7000 }, ...prev].slice(0, 4));
   };
 
   return (
@@ -355,13 +380,13 @@ export function IsoWorldMap({ playerVariantId }: Props) {
           }}
         />
         {eventFeed.length ? (
-          <div className="absolute right-4 top-4 z-50 w-[360px] space-y-2 pointer-events-none">
-            {eventFeed.map((event, idx) => (
+          <div className="fixed bottom-4 left-4 z-[130] w-[360px] space-y-2 pointer-events-none">
+            {eventFeed.map((event) => (
               <div
-                key={`${event}-${idx}`}
+                key={event.id}
                 className="rounded-md border border-red-400/40 bg-red-900/35 px-3 py-2 text-xs text-red-100 shadow-lg backdrop-blur-sm"
               >
-                {event}
+                {event.text}
               </div>
             ))}
           </div>
@@ -441,7 +466,7 @@ export function IsoWorldMap({ playerVariantId }: Props) {
       <button
         type="button"
         data-ui-button="1"
-        className="fixed left-4 top-1/2 z-[120] -translate-y-1/2 rounded-md transition duration-150 ease-out hover:scale-105 hover:brightness-110 hover:drop-shadow-[0_0_10px_rgba(120,160,255,0.65)] active:scale-95 active:brightness-95"
+        className="group fixed left-4 top-1/2 z-[120] -translate-y-1/2 transition duration-150 ease-out hover:scale-105 active:scale-95"
         onClick={() => setIsBuyModalOpen(true)}
         aria-label="Open house buy and upgrade menu"
       >
@@ -450,7 +475,7 @@ export function IsoWorldMap({ playerVariantId }: Props) {
           alt=""
           src="/Icons/housebuy.png"
           draggable={false}
-          className="h-auto w-[72px] select-none [-webkit-user-drag:none] [image-rendering:pixelated]"
+          className="h-auto w-[72px] select-none transition duration-150 ease-out [-webkit-user-drag:none] [image-rendering:pixelated] group-hover:brightness-110 group-hover:[filter:drop-shadow(0_0_1px_rgba(34,74,180,0.98))_drop-shadow(0_0_3px_rgba(34,74,180,0.92))] group-active:brightness-95"
         />
       </button>
 
