@@ -1529,10 +1529,11 @@ function MapHouses({
           const hasIncidentAlert =
             h.isPlayerTeam &&
             (session?.maintenanceTasks.some((t) => t.kind === "warning" || t.kind === "enforce" || t.kind === "repair_small" || t.kind === "repair_large") ?? false);
-          const iconCount = Math.min(
-            3,
-            Number(Boolean(h.isPlayerTeam && activePile)) + Number(hasApplicantAlert) + Number(hasIncidentAlert),
-          );
+          const alertIcons: string[] = [];
+          if (h.isPlayerTeam && activePile) alertIcons.push("/Icons/exclamationicon.png");
+          if (hasApplicantAlert) alertIcons.push("/Icons/tenanticon.png");
+          if (hasIncidentAlert) alertIcons.push("/Icons/exclamationicon.png");
+          const visibleAlertIcons = alertIcons.slice(0, 3);
           return (
         <div
           key={h.id}
@@ -1632,7 +1633,7 @@ function MapHouses({
             </>
           </div>
 
-          {Array.from({ length: iconCount }).map((_, idx) => (
+          {visibleAlertIcons.map((iconSrc, idx) => (
             <div
               key={`alert-${h.id}-${idx}`}
               className="trash-alert-bob absolute"
@@ -1643,7 +1644,7 @@ function MapHouses({
                 width: `${Math.max(28, Math.round(72 * h.scale))}px`,
                 height: `${Math.max(28, Math.round(72 * h.scale))}px`,
                 transform: "translate(-50%, -50%)",
-                backgroundImage: "url('/Icons/exclamationicon.png')",
+                backgroundImage: `url('${iconSrc}')`,
                 backgroundRepeat: "no-repeat",
                 backgroundPosition: "center",
                 backgroundSize: "contain",
