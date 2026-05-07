@@ -9,13 +9,13 @@ import { HOA_WELCOME_SESSION_KEY } from "@/lib/hoa-welcome";
 import { connectClient } from "../../lib/ws";
 
 const PFP_OPTIONS = [
-  "/Pfp%20/2pfp.png",
-  "/Pfp%20/3pfp.png",
-  "/Pfp%20/4pfp.png",
-  "/Pfp%20/5pfp.png",
-  "/Pfp%20/6pfp.png",
-  "/Pfp%20/7pfp.png",
-  "/Pfp%20/Untitled_Artwork.png",
+  "/pfp/2pfp.png",
+  "/pfp/3pfp.png",
+  "/pfp/4pfp.png",
+  "/pfp/5pfp.png",
+  "/pfp/6pfp.png",
+  "/pfp/7pfp.png",
+  "/pfp/Untitled_Artwork.png",
 ] as const;
 
 export default function CreateMatchPage() {
