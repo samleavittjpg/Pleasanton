@@ -61,6 +61,7 @@ type ToastNotice = {
 };
 type HappinessPoint = { tSec: number; mood: number };
 type EggPlacement = { x: number; y: number; src: "/Vandalize/Egg.png" | "/Vandalize/Egg 2.png" };
+type DumpPlacement = { x: number; y: number; src: string };
 
 // This map is intentionally minimal: just the neighborhood pad tile and houses.
 const WORLD_W = 2600;
@@ -157,7 +158,10 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
   const [pendingVandalizeMethod, setPendingVandalizeMethod] = useState<"egg" | "spray" | "trash" | null>(null);
   const [eggAttackTargetHouseId, setEggAttackTargetHouseId] = useState<string | null>(null);
   const [eggPlacements, setEggPlacements] = useState<Record<string, EggPlacement[]>>({});
+  const [dumpAttackTargetHouseId, setDumpAttackTargetHouseId] = useState<string | null>(null);
+  const [dumpPlacements, setDumpPlacements] = useState<Record<string, DumpPlacement[]>>({});
   const [smallEggCursorUrl, setSmallEggCursorUrl] = useState<string | null>(null);
+  const [smallDumpCursorUrl, setSmallDumpCursorUrl] = useState<string | null>(null);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [isEndReportOpen, setIsEndReportOpen] = useState(false);
   const [isMaintenanceModalOpen, setIsMaintenanceModalOpen] = useState(false);
@@ -176,7 +180,7 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
     if (typeof window === "undefined") return;
     const img = new window.Image();
     img.onload = () => {
-      const size = 20;
+      const size = 30;
       const canvas = document.createElement("canvas");
       canvas.width = size;
       canvas.height = size;
@@ -190,9 +194,29 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
     img.src = "/Vandalize/Egg.png";
   }, []);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const img = new window.Image();
+    img.onload = () => {
+      const size = 20;
+      const canvas = document.createElement("canvas");
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.imageSmoothingEnabled = false;
+      ctx.clearRect(0, 0, size, size);
+      ctx.drawImage(img, 0, 0, size, size);
+      setSmallDumpCursorUrl(canvas.toDataURL("image/png"));
+    };
+    img.src = "/bins/dumpingcursor.png";
+  }, []);
+
   const forcedMapCursor = eggAttackTargetHouseId
     ? `url('${smallEggCursorUrl ?? "/Vandalize/Egg.png"}') 5 5, auto`
-    : undefined;
+    : dumpAttackTargetHouseId
+      ? `url('${smallDumpCursorUrl ?? "/bins/dumpingcursor.png"}') 5 5, auto`
+      : undefined;
 
   const nextEventId = (prefix: string) => {
     eventIdSeqRef.current += 1;
@@ -925,6 +949,18 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
                 return { ...prev, [houseId]: next.slice(0, 3) };
               });
             }}
+            dumpAttackTargetHouseId={dumpAttackTargetHouseId}
+            dumpPlacements={dumpPlacements}
+            onDumpPlaced={(houseId, placement) => {
+              setDumpPlacements((prev) => {
+                const next = [...(prev[houseId] ?? []), placement];
+                if (next.length >= 4) {
+                  setDumpAttackTargetHouseId(null);
+                  pushToast("Dump sequence complete. Returning to normal controls.");
+                }
+                return { ...prev, [houseId]: next.slice(0, 4) };
+              });
+            }}
             onHouseClick={(houseId) => setSelectedHouseId(houseId)}
             houseSession={houseSession}
             onPileCleaned={(houseId) =>
@@ -975,8 +1011,12 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
                         setEggAttackTargetHouseId(house.id);
                         setSelectedHouseId(house.id);
                         pushToast(`Egg attack armed at ${board.ownerLabel}. Place 3 eggs on the target house.`);
+                      } else if (pendingVandalizeMethod === "trash") {
+                        setDumpAttackTargetHouseId(house.id);
+                        setSelectedHouseId(house.id);
+                        pushToast(`Dump attack armed at ${board.ownerLabel}. Place 4 dumps on the target house.`);
                       } else {
-                        const actionLabel = pendingVandalizeMethod === "spray" ? "Spray paint" : "Trash dump";
+                        const actionLabel = "Spray paint";
                         pushToast(`${actionLabel} launched at ${board.ownerLabel}.`);
                       }
                       setPendingVandalizeMethod(null);
@@ -1064,7 +1104,11 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
             type="button"
             data-ui-button="1"
             className="rounded-md border border-zinc-700 bg-zinc-900/90 px-3 py-1.5 text-[11px] uppercase text-zinc-200 hover:bg-zinc-800"
-            onClick={() => setPendingVandalizeMethod(null)}
+            onClick={() => {
+              setPendingVandalizeMethod(null);
+              setEggAttackTargetHouseId(null);
+              setDumpAttackTargetHouseId(null);
+            }}
           >
             Cancel Targeting
           </button>
@@ -1177,7 +1221,11 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
               <button
                 type="button"
                 className="w-full rounded-md border border-zinc-700 bg-zinc-800 px-3 py-2 text-[11px] uppercase text-zinc-300 hover:bg-zinc-700"
-                onClick={() => setPendingVandalizeMethod(null)}
+                onClick={() => {
+                  setPendingVandalizeMethod(null);
+                  setEggAttackTargetHouseId(null);
+                  setDumpAttackTargetHouseId(null);
+                }}
               >
                 Back
               </button>
@@ -1678,6 +1726,9 @@ function MapHouses({
   eggAttackTargetHouseId,
   eggPlacements,
   onEggPlaced,
+  dumpAttackTargetHouseId,
+  dumpPlacements,
+  onDumpPlaced,
   houseSession,
   onPileCleaned,
 }: {
@@ -1689,6 +1740,9 @@ function MapHouses({
   eggAttackTargetHouseId?: string | null;
   eggPlacements: Record<string, EggPlacement[]>;
   onEggPlaced: (houseId: string, placement: EggPlacement) => void;
+  dumpAttackTargetHouseId?: string | null;
+  dumpPlacements: Record<string, DumpPlacement[]>;
+  onDumpPlaced: (houseId: string, placement: DumpPlacement) => void;
   houseSession: Record<string, HouseSessionState>;
   onPileCleaned: (houseId: string) => void;
 }) {
@@ -1739,6 +1793,7 @@ function MapHouses({
     alphaCache.current.set(src, p);
     return p;
   };
+  const DUMP_DECAL_SRCS = ["/Vandalize/Juice.png", "/Vandalize/Dump%201.png", "/Vandalize/Bag.png", "/Vandalize/Apple.png"] as const;
 
   function hitTestHousePixel(h: PlacedHouse, localX: number, localY: number) {
     // Convert board-local mouse coords into house-local box coords (before translate(-50%,-50%)).
@@ -1821,6 +1876,19 @@ function MapHouses({
         const rect = containerRef.current?.getBoundingClientRect();
         const localX = rect ? (e.clientX - rect.left) / zoom : h.x;
         const localY = rect ? (e.clientY - rect.top) / zoom : h.y;
+        if (dumpAttackTargetHouseId) {
+          if (h.id !== dumpAttackTargetHouseId) {
+            e.preventDefault();
+            return;
+          }
+          const local = getHouseLocalCoords(h, localX, localY);
+          const nx = Math.max(0.1, Math.min(0.9, local.x / Math.max(1, local.size)));
+          const ny = Math.max(0.12, Math.min(0.88, local.y / Math.max(1, local.size)));
+          const src = DUMP_DECAL_SRCS[Math.floor(Math.random() * DUMP_DECAL_SRCS.length)] ?? "/Vandalize/Dump 1.png";
+          onDumpPlaced(h.id, { x: nx, y: ny, src });
+          e.preventDefault();
+          return;
+        }
         if (eggAttackTargetHouseId) {
           if (h.id !== eggAttackTargetHouseId) {
             e.preventDefault();
@@ -1894,6 +1962,7 @@ function MapHouses({
           if (hasIncidentAlert) alertIcons.push("/Icons/exclamationicon.png");
           const visibleAlertIcons = alertIcons.slice(0, 3);
           const eggs = eggPlacements[h.id] ?? [];
+          const dumps = dumpPlacements[h.id] ?? [];
           return (
         <div
           key={h.id}
@@ -1967,6 +2036,29 @@ function MapHouses({
                   imageRendering: "pixelated",
                 }}
               />
+            ))}
+            {dumps.map((dump, idx) => (
+              <div
+                key={`dump-${h.id}-${idx}`}
+                className="absolute"
+                style={{
+                  left: `${Math.round(512 * h.scale * dump.x)}px`,
+                  top: `${Math.round(512 * h.scale * dump.y)}px`,
+                  width: `${Math.max(28, Math.round(92 * h.scale))}px`,
+                  height: `${Math.max(28, Math.round(92 * h.scale))}px`,
+                  transform: "translate(-50%, -50%)",
+                  pointerEvents: "none",
+                  zIndex: 4,
+                }}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={dump.src}
+                  alt=""
+                  draggable={false}
+                  className="h-full w-full object-contain [image-rendering:pixelated]"
+                />
+              </div>
             ))}
 
             <>
