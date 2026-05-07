@@ -282,8 +282,12 @@ export function IsoWorldMap({ playerVariantId }: Props) {
   return (
     <div
       ref={scrollRef}
-      className="h-full w-full overflow-auto bg-zinc-900"
-      style={{ cursor: didDrag ? "grabbing" : "grab" }}
+      className="h-full w-full select-none overflow-auto"
+      style={{
+        cursor: didDrag ? "grabbing" : "grab",
+        // Fills letterboxing around the world when the viewport is larger than content.
+        backgroundColor: "#1a2618",
+      }}
       onPointerDown={(e) => {
         const el = scrollRef.current;
         if (!el) return;
@@ -338,7 +342,18 @@ export function IsoWorldMap({ playerVariantId }: Props) {
           width: `${WORLD_W}px`,
           height: `${WORLD_H}px`,
         }}
+        onDragStart={(e) => e.preventDefault()}
       >
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 z-0"
+          style={{
+            backgroundColor: "#1a2618",
+            backgroundImage: "url(/grass-field-bg.png)",
+            backgroundRepeat: "repeat",
+            backgroundSize: "auto",
+          }}
+        />
         {eventFeed.length ? (
           <div className="absolute right-4 top-4 z-50 w-[360px] space-y-2 pointer-events-none">
             {eventFeed.map((event, idx) => (
@@ -352,7 +367,7 @@ export function IsoWorldMap({ playerVariantId }: Props) {
           </div>
         ) : null}
         {/* Layer 1: all boards. Pointer-events disabled so they never block houses. */}
-        <div className="absolute inset-0" style={{ pointerEvents: "none" }}>
+        <div className="absolute inset-0 z-10" style={{ pointerEvents: "none" }}>
           {scene.boards.map((b) => (
             <div
               key={b.id}
@@ -362,13 +377,14 @@ export function IsoWorldMap({ playerVariantId }: Props) {
             >
               <Image
                 alt=""
-                src="/Neighborhood.png"
+                src="/Neighborhood_v2.png"
                 width={900}
                 height={900}
                 loading={b.isPlayer ? "eager" : "lazy"}
                 fetchPriority={b.isPlayer ? "high" : "auto"}
                 unoptimized
-                className="[image-rendering:pixelated]"
+                draggable={false}
+                className="pointer-events-none [image-rendering:pixelated] select-none [-webkit-user-drag:none]"
                 style={{ width: "auto", height: "auto" }}
               />
 
@@ -430,7 +446,12 @@ export function IsoWorldMap({ playerVariantId }: Props) {
         aria-label="Open house buy and upgrade menu"
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img alt="" src="/Icons/housebuy.png" className="h-auto w-[72px] [image-rendering:pixelated]" />
+        <img
+          alt=""
+          src="/Icons/housebuy.png"
+          draggable={false}
+          className="h-auto w-[72px] select-none [-webkit-user-drag:none] [image-rendering:pixelated]"
+        />
       </button>
 
       <HouseInfoModal
@@ -940,7 +961,9 @@ function MapHouses({
             top: `${Math.round(mousePos.y)}px`,
             width: "100px",
             height: "100px",
-            transform: "translate(-6px, -24px)",
+            // Hotspot stays at OS cursor tip; nudge sprite up/left so the wide bristles sit roughly
+            // where the default pointer arrow's body would read (instead of centered on tip).
+            transform: "translate(-26px, -48px)",
             backgroundImage: `url('${broomCursor}')`,
             backgroundRepeat: "no-repeat",
             backgroundPosition: "center",
@@ -977,41 +1000,57 @@ const EXTRA_LARGE_BINS = [
 ] as const;
 const TRASH_PILES = ["/bins/trashpile1.png"] as const;
 
-const TRASH_ANCHOR: Record<PlacedHouse["kind"], { x: number; y: number }> = {
+const BIN_ICON_SIZE_MUL = 1.7;
+const LIGHT_BIN_SIZE_MUL = 2.5;
+const TRASH_PILE_SIZE_MUL = 1.22;
+
+const BIN_ANCHOR: Record<PlacedHouse["kind"], { x: number; y: number }> = {
   // local offsets in a 512x512 house sprite box
-  base: { x: 200, y: 397 },
-  mid: { x: 190, y: 380 },
-  full: { x: 195, y: 380 },
+  base: { x: 280, y: 420 },
+  mid: { x: 280, y: 420 },
+  full: { x: 280, y: 420 },
 };
+
+const TRASH_PILE_ANCHOR: Record<PlacedHouse["kind"], { x: number; y: number }> = {
+  // local offsets in a 512x512 house sprite box
+  base: { x: 180, y: 400 },
+  mid: { x: 165, y: 400 },
+  full: { x: 180, y: 400 },
+};
+
+function scaleSprite(s: TrashSprite, sizeMul: number): TrashSprite {
+  return { ...s, w: Math.round(s.w * sizeMul), h: Math.round(s.h * sizeMul) };
+}
 
 function houseBinsFor(h: PlacedHouse): TrashSprite[] {
   const family = familyForHouse(h.boardId, h.padIndex);
   const trashLbs = Math.max(1, Math.min(30, family.dailyAvgTrash));
-  const anchor = TRASH_ANCHOR[h.kind];
+  const anchor = BIN_ANCHOR[h.kind];
   const rng = makeRng(`${h.id}:bin`);
   if (trashLbs <= 7) {
     const src = LIGHT_BINS[Math.floor(rng() * LIGHT_BINS.length)]!;
-    return [{ src, x: anchor.x - 10, y: anchor.y - 6, w: 72, h: 62 }];
+    return [scaleSprite({ src, x: anchor.x - 10, y: anchor.y - 6, w: 72, h: 62 }, LIGHT_BIN_SIZE_MUL)];
   }
   if (trashLbs <= 14) {
     const src = MEDIUM_BINS[Math.floor(rng() * MEDIUM_BINS.length)]!;
-    return [{ src, x: anchor.x - 8, y: anchor.y - 4, w: 84, h: 70 }];
+    // Same size as light bins, but medium sprites sit differently (less left/up bias).
+    return [scaleSprite({ src, x: anchor.x - 8, y: anchor.y - 4, w: 84, h: 70 }, LIGHT_BIN_SIZE_MUL)];
   }
   if (trashLbs <= 22) {
     const src = LARGE_BINS[Math.floor(rng() * LARGE_BINS.length)]!;
-    return [{ src, x: anchor.x, y: anchor.y, w: 106, h: 86 }];
+    return [scaleSprite({ src, x: anchor.x, y: anchor.y, w: 106, h: 86 }, BIN_ICON_SIZE_MUL)];
   }
 
   const src = EXTRA_LARGE_BINS[Math.floor(rng() * EXTRA_LARGE_BINS.length)]!;
-  return [{ src, x: anchor.x + 6, y: anchor.y + 4, w: 118, h: 94 }];
+  return [scaleSprite({ src, x: anchor.x, y: anchor.y, w: 118, h: 94 }, BIN_ICON_SIZE_MUL)];
 }
 
 function houseTrashPileFor(h: PlacedHouse, cleared: boolean, session?: HouseSessionState): TrashSprite | null {
   if (cleared) return null;
   if (!session || !session.occupied || !session.trashPileActive) return null;
-  const anchor = TRASH_ANCHOR[h.kind];
+  const anchor = TRASH_PILE_ANCHOR[h.kind];
   const src = TRASH_PILES[hash(`${h.id}:pile`) % TRASH_PILES.length]!;
-  return { src, x: anchor.x + -100, y: anchor.y + -90, w: 95, h: 80 };
+  return scaleSprite({ src, x: anchor.x + -100, y: anchor.y + -90, w: 95, h: 80 }, TRASH_PILE_SIZE_MUL);
 }
 
 function tempHappinessScore(avgTrashLbs: number, complaintsPerWeek: number): number {
