@@ -90,6 +90,25 @@ function getPads(): Pad[] {
   });
 }
 
+function MoodRow({ label, value, inverse }: { label: string; value: number; inverse?: boolean }) {
+  const clamped = Math.max(0, Math.min(100, value));
+  const pct = clamped;
+  const good = inverse ? clamped <= 30 : clamped >= 70;
+  const warn = !good && (inverse ? clamped <= 60 : clamped >= 40);
+  const barColor = good ? "#4ade80" : warn ? "#facc15" : "#ef4444";
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between">
+        <span>{label}</span>
+        <span className="tabular-nums">{pct}%</span>
+      </div>
+      <div className="h-2 w-full border border-zinc-700 bg-zinc-800">
+        <div className="h-full" style={{ width: `${pct}%`, backgroundColor: barColor }} />
+      </div>
+    </div>
+  );
+}
+
 export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const centerRef = useRef<HTMLDivElement>(null);
@@ -108,6 +127,7 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
   const [isBuyModalOpen, setIsBuyModalOpen] = useState(false);
   const [playerSlotKinds, setPlayerSlotKinds] = useState<Array<PlacedHouse["kind"] | null>>(() => initPlayerSlotKinds(playerVariantId));
   const [mapZoom, setMapZoom] = useState(1);
+  const [moodPanelOpen, setMoodPanelOpen] = useState(false);
 
   const bumpMapZoom = (delta: number) => {
     const el = scrollRef.current;
@@ -342,6 +362,31 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
   const happybarFillColor = clampedNeighborhoodMood <= 25 ? "#ef4444" : "#facc15";
   const HAPPYBAR_POINTS =
     "1837.12 9.98 1837.12 1.5 16.88 1.5 16.88 9.98 1.5 9.98 1.5 47.28 16.88 47.28 16.88 54.06 1837.12 54.06 1837.12 47.28 1852.5 47.28 1852.5 9.98 1837.12 9.98";
+
+  const cleanlinessScore = useMemo(() => {
+    const homes = Object.values(houseSession).filter((h) => h.isPlayerTeam);
+    if (!homes.length) return 70;
+    const dirtyCount = homes.filter((h) => h.trashPileActive).length;
+    const ratio = 1 - dirtyCount / homes.length;
+    return Math.round(40 + ratio * 60);
+  }, [houseSession]);
+
+  const moneyScore = useMemo(() => {
+    const homes = Object.values(houseSession).filter((h) => h.isPlayerTeam);
+    if (!homes.length) return 65;
+    const avg = homes.reduce((sum, h) => sum + (h.tenant?.dailyMoneyContribution ?? 0), 0) / homes.length || 0;
+    const scaled = Math.max(0, Math.min(1, avg / 250));
+    return Math.round(40 + scaled * 60);
+  }, [houseSession]);
+
+  const vandalismScore = useMemo(() => {
+    const homes = Object.values(houseSession).filter((h) => h.isPlayerTeam);
+    if (!homes.length) return 80;
+    const incidents = homes.reduce((sum, h) => sum + (h.recentIncidents.length || 0), 0);
+    const perHome = incidents / homes.length;
+    const clean = Math.max(0, Math.min(1, 1 - perHome / 5));
+    return Math.round(40 + clean * 60);
+  }, [houseSession]);
   const playerBoard = scene.boards.find((b) => b.isPlayer) ?? null;
   const updatePlayerSlotKind = (slotIdx: number, nextKind: PlacedHouse["kind"]) => {
     setPlayerSlotKinds((prev) => {
@@ -412,27 +457,44 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
         setDidDrag(false);
       }}
     >
-      <div className="pointer-events-none fixed left-1/2 top-12 z-[125] -translate-x-1/2">
-        <div className="flex items-center gap-3 rounded border border-black/60 bg-zinc-900/80 px-3 py-2 shadow-[3px_3px_0_rgba(0,0,0,0.6)] backdrop-blur-sm">
-          <div className="relative h-[26px] w-[220px] sm:h-[30px] sm:w-[260px]">
-            {/* Filled polygon clipped by width (thickness comes from the filled shape, not the stroke). */}
-            <div className="absolute inset-0 bg-zinc-800/80" />
-            <div className="absolute inset-y-0 left-0 overflow-hidden" style={{ width: `${clampedNeighborhoodMood}%` }}>
-              <svg viewBox="0 0 1854 55.56" className="h-full w-full" preserveAspectRatio="xMidYMid meet" aria-hidden>
-                <polygon points={HAPPYBAR_POINTS} fill={happybarFillColor} />
-              </svg>
+      <div className="pointer-events-none fixed left-1/2 top-6 z-[125] -translate-x-1/2">
+        <div className="pointer-events-auto flex flex-col items-center gap-2">
+          <button
+            type="button"
+            data-ui-button="1"
+            className="flex cursor-pointer items-center gap-3 rounded border border-black/60 bg-zinc-900/80 px-3 py-2 shadow-[3px_3px_0_rgba(0,0,0,0.6)] backdrop-blur-sm"
+            onClick={() => setMoodPanelOpen((open) => !open)}
+          >
+            <div className="relative h-[26px] w-[220px] sm:h-[30px] sm:w-[260px]">
+              {/* Filled polygon clipped by width (thickness comes from the filled shape, not the stroke). */}
+              <div className="absolute inset-0 bg-zinc-800/80" />
+              <div className="absolute inset-y-0 left-0 overflow-hidden" style={{ width: `${clampedNeighborhoodMood}%` }}>
+                <svg viewBox="0 0 1854 55.56" className="h-full w-full" preserveAspectRatio="xMidYMid meet" aria-hidden>
+                  <polygon points={HAPPYBAR_POINTS} fill={happybarFillColor} />
+                </svg>
+              </div>
+              {/* Outline on top for crisp pixel edges */}
+              <Image
+                src="/happybar.svg"
+                alt="Neighborhood mood bar"
+                width={200}
+                height={32}
+                className="absolute inset-0 h-full w-full [image-rendering:pixelated]"
+                priority
+              />
             </div>
-            {/* Outline on top for crisp pixel edges */}
-            <Image
-              src="/happybar.svg"
-              alt="Neighborhood mood bar"
-              width={200}
-              height={32}
-              className="absolute inset-0 h-full w-full [image-rendering:pixelated]"
-              priority
-            />
-          </div>
-          <div className="text-[11px] uppercase tracking-wide text-amber-300">Mood: {neighborhoodMood}%</div>
+            <div className="text-[11px] uppercase tracking-wide text-amber-300">Mood: {neighborhoodMood}%</div>
+          </button>
+          {moodPanelOpen ? (
+            <div className="w-full max-w-xs rounded-none border border-zinc-700 bg-zinc-900 px-3 py-2 text-[11px] text-zinc-100 shadow-[3px_3px_0_rgba(0,0,0,0.6)]">
+              <div className="mb-1 text-[10px] font-normal uppercase tracking-wide text-zinc-300">Breakdown</div>
+              <div className="space-y-2">
+                <MoodRow label="Cleanliness" value={cleanlinessScore} />
+                <MoodRow label="Money" value={moneyScore} />
+                <MoodRow label="Vandalism" value={vandalismScore} inverse />
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
       <div
