@@ -982,6 +982,7 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
         houseSrc={selectedHouse?.src ?? ""}
         houseLabel={selectedHouse ? `${familyForHouse(selectedHouse.boardId, selectedHouse.padIndex).lastName} family (House #${selectedHouse.padIndex + 1})` : "House"}
         canEvict={selectedHouse?.isPlayerTeam ?? false}
+        canVandalize={!!selectedHouse && !selectedHouse.isPlayerTeam}
         runtime={
           selectedRuntime ?? {
             occupied: true,
@@ -1010,6 +1011,13 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
               },
             };
           });
+        }}
+        onVandalize={() => {
+          if (!selectedHouse) return;
+          const kind = selectedHouse.kind;
+          const m = /_House_([A-Za-z]+)\.png$/i.exec(selectedHouse.src);
+          const variant = (m?.[1] ?? "").trim();
+          router.push(`/vandalize/${encodeURIComponent(selectedHouse.id)}?kind=${kind}&variant=${encodeURIComponent(variant)}`);
         }}
         onAcceptApplicant={(applicantId) => {
           if (!selectedHouse) return;

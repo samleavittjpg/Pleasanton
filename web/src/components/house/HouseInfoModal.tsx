@@ -34,11 +34,12 @@ export function HouseInfoModal(props: {
   houseLabel: string;
   runtime: HouseRuntimeView;
   canEvict: boolean;
+  canVandalize?: boolean;
   onEvict: () => void;
+  onVandalize?: () => void;
   onAcceptApplicant: (applicantId: string) => void;
   onRejectApplicant: (applicantId: string) => void;
 }) {
-  if (!props.isOpen) return null;
   const [selectedApplicantId, setSelectedApplicantId] = useState<string | null>(null);
   const runtime = props.runtime;
   const f = runtime.tenant;
@@ -46,6 +47,8 @@ export function HouseInfoModal(props: {
     () => runtime.applicants.find((a) => a.id === selectedApplicantId) ?? runtime.applicants[0] ?? null,
     [runtime.applicants, selectedApplicantId],
   );
+
+  if (!props.isOpen) return null;
 
   return (
     <Modal title={props.houseLabel} onClose={props.onClose}>
@@ -78,7 +81,17 @@ export function HouseInfoModal(props: {
                   </button>
                 </div>
               ) : (
-                <div />
+                <div className="rounded-lg border border-fuchsia-500/30 bg-fuchsia-600/10 p-2">
+                  <button
+                    type="button"
+                    className="w-full rounded-md px-3 py-3 text-sm font-semibold text-fuchsia-100 hover:bg-fuchsia-600/15"
+                    onClick={() => props.onVandalize?.()}
+                    disabled={!props.canVandalize}
+                  >
+                    Vandalize
+                  </button>
+                  <div className="mt-1 text-center text-[11px] text-fuchsia-200/70">Graffiti this house’s splash art.</div>
+                </div>
               )
             ) : (
               <StatBox label="Applications" value={`${runtime.applicants.length} / 5`} />

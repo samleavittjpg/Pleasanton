@@ -15,6 +15,7 @@
 
 # local persisted accounts (dev / single Node instance only)
 /data/users-store.json
+/data/graffiti/
 
 # next.js
 /.next/
