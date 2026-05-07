@@ -60,6 +60,7 @@ type ToastNotice = {
   expiresAt: number;
 };
 type HappinessPoint = { tSec: number; mood: number };
+type EggPlacement = { x: number; y: number; src: "/Vandalize/Egg.png" | "/Vandalize/Egg 2.png" };
 
 // This map is intentionally minimal: just the neighborhood pad tile and houses.
 const WORLD_W = 2600;
@@ -154,6 +155,9 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
   const [isVandalizePromptOpen, setIsVandalizePromptOpen] = useState(false);
   const [vandalizeUnlocked, setVandalizeUnlocked] = useState(false);
   const [pendingVandalizeMethod, setPendingVandalizeMethod] = useState<"egg" | "spray" | "trash" | null>(null);
+  const [eggAttackTargetHouseId, setEggAttackTargetHouseId] = useState<string | null>(null);
+  const [eggPlacements, setEggPlacements] = useState<Record<string, EggPlacement[]>>({});
+  const [smallEggCursorUrl, setSmallEggCursorUrl] = useState<string | null>(null);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [isEndReportOpen, setIsEndReportOpen] = useState(false);
   const [isMaintenanceModalOpen, setIsMaintenanceModalOpen] = useState(false);
@@ -167,6 +171,33 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
   const [moodPanelOpen, setMoodPanelOpen] = useState(false);
   const houseSessionRef = useRef<Record<string, HouseSessionState>>({});
   const gameStartMsRef = useRef<number>(Date.now());
+  const eventIdSeqRef = useRef(0);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const img = new window.Image();
+    img.onload = () => {
+      const size = 20;
+      const canvas = document.createElement("canvas");
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.imageSmoothingEnabled = false;
+      ctx.clearRect(0, 0, size, size);
+      ctx.drawImage(img, 0, 0, size, size);
+      setSmallEggCursorUrl(canvas.toDataURL("image/png"));
+    };
+    img.src = "/Vandalize/Egg.png";
+  }, []);
+
+  const forcedMapCursor = eggAttackTargetHouseId
+    ? `url('${smallEggCursorUrl ?? "/Vandalize/Egg.png"}') 5 5, auto`
+    : undefined;
+
+  const nextEventId = (prefix: string) => {
+    eventIdSeqRef.current += 1;
+    return `${Date.now()}-${prefix}-${eventIdSeqRef.current}`;
+  };
 
   const bumpMapZoom = (delta: number) => {
     const el = scrollRef.current;
@@ -505,7 +536,7 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
       if (notices.length) {
         const now = Date.now();
         const nextNotices = notices.map((text, idx) => ({
-          id: `${now}-${idx}-${hash(text)}`,
+          id: nextEventId(`notice-${idx}-${hash(text)}`),
           text,
           expiresAt: now + 7000,
         }));
@@ -544,7 +575,7 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
       setPlayerMoney((m) => m + payout);
       setMoneyCollectedTotal((m) => m + payout);
       const now = Date.now();
-      setEventFeed((prev) => [{ id: `${now}-income`, text: `Collected $${payout} tenant contribution.`, expiresAt: now + 7000 }, ...prev].slice(0, 4));
+      setEventFeed((prev) => [{ id: nextEventId("income"), text: `Collected $${payout} tenant contribution.`, expiresAt: now + 7000 }, ...prev].slice(0, 4));
     }, 30000);
     return () => window.clearInterval(id);
   }, [playerBoard]);
@@ -666,12 +697,12 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
       happinessGain > 0
         ? `Slot ${slotIdx + 1} upgraded to ${nextKind}. Happiness +${happinessGain}.`
         : `Slot ${slotIdx + 1} upgraded to ${nextKind}.`;
-    setEventFeed((prev) => [{ id: `${now}-slot-${slotIdx}-${nextKind}`, text: noticeText, expiresAt: now + 7000 }, ...prev].slice(0, 4));
+    setEventFeed((prev) => [{ id: nextEventId(`slot-${slotIdx}-${nextKind}`), text: noticeText, expiresAt: now + 7000 }, ...prev].slice(0, 4));
   };
 
   const pushToast = (text: string) => {
     const now = Date.now();
-    setEventFeed((prev) => [{ id: `${now}-maint-${hash(text)}`, text, expiresAt: now + 7000 }, ...prev].slice(0, 4));
+    setEventFeed((prev) => [{ id: nextEventId(`maint-${hash(text)}`), text, expiresAt: now + 7000 }, ...prev].slice(0, 4));
   };
 
   const resolveMaintenanceTask = (houseId: string, task: MaintenanceTask) => {
@@ -703,7 +734,7 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
       ref={scrollRef}
       className="h-full w-full select-none overflow-auto"
       style={{
-        cursor: didDrag ? "grabbing" : "grab",
+        cursor: forcedMapCursor ?? (didDrag ? "grabbing" : "grab"),
         // Fills letterboxing around the world when the viewport is larger than content.
         backgroundColor: "#1a2618",
       }}
@@ -881,6 +912,19 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
             houses={scene.allHouses}
             isPanning={() => didDrag}
             zoom={mapZoom}
+            forcedCursor={forcedMapCursor}
+            eggAttackTargetHouseId={eggAttackTargetHouseId}
+            eggPlacements={eggPlacements}
+            onEggPlaced={(houseId, placement) => {
+              setEggPlacements((prev) => {
+                const next = [...(prev[houseId] ?? []), placement];
+                if (next.length >= 3) {
+                  setEggAttackTargetHouseId(null);
+                  pushToast("Egg sequence complete. Returning to normal controls.");
+                }
+                return { ...prev, [houseId]: next.slice(0, 3) };
+              });
+            }}
             onHouseClick={(houseId) => setSelectedHouseId(houseId)}
             houseSession={houseSession}
             onPileCleaned={(houseId) =>
@@ -918,16 +962,23 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
                     type="button"
                     data-ui-button="1"
                     className="absolute border-2 border-fuchsia-400/80 bg-fuchsia-500/10 text-[10px] uppercase tracking-wide text-fuchsia-100 shadow-[0_0_0_2px_rgba(0,0,0,0.35)] hover:bg-fuchsia-500/25"
-                    style={{ left: `${left}px`, top: `${top}px`, width: `${size}px`, height: `${size}px` }}
+                    style={{
+                      left: `${left}px`,
+                      top: `${top}px`,
+                      width: `${size}px`,
+                      height: `${size}px`,
+                      cursor: forcedMapCursor ?? "pointer",
+                    }}
                     onClick={() => {
                       focusMapOnHouse(house.x, house.y + HOUSE_OFFSET_Y_PX, 1.25);
-                      const actionLabel =
-                        pendingVandalizeMethod === "egg"
-                          ? "Egg attack"
-                          : pendingVandalizeMethod === "spray"
-                            ? "Spray paint"
-                            : "Trash dump";
-                      pushToast(`${actionLabel} launched at ${board.ownerLabel}.`);
+                      if (pendingVandalizeMethod === "egg") {
+                        setEggAttackTargetHouseId(house.id);
+                        setSelectedHouseId(house.id);
+                        pushToast(`Egg attack armed at ${board.ownerLabel}. Place 3 eggs on the target house.`);
+                      } else {
+                        const actionLabel = pendingVandalizeMethod === "spray" ? "Spray paint" : "Trash dump";
+                        pushToast(`${actionLabel} launched at ${board.ownerLabel}.`);
+                      }
                       setPendingVandalizeMethod(null);
                     }}
                   >
@@ -1623,6 +1674,10 @@ function MapHouses({
   onHouseClick,
   isPanning,
   zoom,
+  forcedCursor,
+  eggAttackTargetHouseId,
+  eggPlacements,
+  onEggPlaced,
   houseSession,
   onPileCleaned,
 }: {
@@ -1630,6 +1685,10 @@ function MapHouses({
   onHouseClick: (houseId: string) => void;
   isPanning: () => boolean;
   zoom: number;
+  forcedCursor?: string;
+  eggAttackTargetHouseId?: string | null;
+  eggPlacements: Record<string, EggPlacement[]>;
+  onEggPlaced: (houseId: string, placement: EggPlacement) => void;
   houseSession: Record<string, HouseSessionState>;
   onPileCleaned: (houseId: string) => void;
 }) {
@@ -1709,6 +1768,13 @@ function MapHouses({
     });
   }
 
+  function getHouseLocalCoords(h: PlacedHouse, localX: number, localY: number) {
+    const size = Math.round(512 * h.scale);
+    const left = h.x - size / 2;
+    const top = h.y + HOUSE_OFFSET_Y_PX - size / 2;
+    return { size, x: localX - left, y: localY - top };
+  }
+
   const scheduleHoverUpdate = (clientX: number, clientY: number) => {
     if (hoverRaf.current != null) cancelAnimationFrame(hoverRaf.current);
     hoverRaf.current = requestAnimationFrame(async () => {
@@ -1752,6 +1818,23 @@ function MapHouses({
         if (isPanning()) return;
         const h = houses.find((x) => x.id === id);
         if (!h) return;
+        const rect = containerRef.current?.getBoundingClientRect();
+        const localX = rect ? (e.clientX - rect.left) / zoom : h.x;
+        const localY = rect ? (e.clientY - rect.top) / zoom : h.y;
+        if (eggAttackTargetHouseId) {
+          if (h.id !== eggAttackTargetHouseId) {
+            e.preventDefault();
+            return;
+          }
+          const local = getHouseLocalCoords(h, localX, localY);
+          const nx = Math.max(0.1, Math.min(0.9, local.x / Math.max(1, local.size)));
+          const ny = Math.max(0.12, Math.min(0.88, local.y / Math.max(1, local.size)));
+          const used = (eggPlacements[h.id]?.length ?? 0) + 1;
+          const src = (used % 2 === 0 ? "/Vandalize/Egg 2.png" : "/Vandalize/Egg.png") as "/Vandalize/Egg.png" | "/Vandalize/Egg 2.png";
+          onEggPlaced(h.id, { x: nx, y: ny, src });
+          e.preventDefault();
+          return;
+        }
         const clicksDone = trashPileClicks[h.id] ?? 0;
         const requiredClicks = trashPileClicksRequired(h.id);
         const activePile = h.isPlayerTeam && houseTrashPileFor(h, clicksDone >= requiredClicks, houseSession[h.id]);
@@ -1772,7 +1855,7 @@ function MapHouses({
       }}
       style={{
         touchAction: "none",
-        cursor: hoveredActivePile ? "none" : undefined,
+        cursor: forcedCursor ?? (hoveredActivePile ? "none" : undefined),
       }}
       onMouseMove={(e) => {
         const rect = containerRef.current?.getBoundingClientRect();
@@ -1810,6 +1893,7 @@ function MapHouses({
           if (hasApplicantAlert) alertIcons.push("/Icons/tenanticon.png");
           if (hasIncidentAlert) alertIcons.push("/Icons/exclamationicon.png");
           const visibleAlertIcons = alertIcons.slice(0, 3);
+          const eggs = eggPlacements[h.id] ?? [];
           return (
         <div
           key={h.id}
@@ -1864,6 +1948,26 @@ function MapHouses({
                 imageRendering: "pixelated",
               }}
             />
+
+            {eggs.map((egg, idx) => (
+              <div
+                key={`egg-${h.id}-${idx}`}
+                className="absolute"
+                style={{
+                  left: `${Math.round(512 * h.scale * egg.x)}px`,
+                  top: `${Math.round(512 * h.scale * egg.y)}px`,
+                  width: `${Math.max(20, Math.round(78 * h.scale))}px`,
+                  height: `${Math.max(20, Math.round(78 * h.scale))}px`,
+                  transform: "translate(-50%, -50%)",
+                  pointerEvents: "none",
+                  backgroundImage: `url(${egg.src})`,
+                  backgroundRepeat: "no-repeat",
+                  backgroundPosition: "center",
+                  backgroundSize: "contain",
+                  imageRendering: "pixelated",
+                }}
+              />
+            ))}
 
             <>
               {houseBinsFor(h).map((bin, idx) => (
