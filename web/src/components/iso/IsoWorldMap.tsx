@@ -595,14 +595,47 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
     return () => window.clearInterval(id);
   }, [neighborhoodMood]);
   const updatePlayerSlotKind = (slotIdx: number, nextKind: PlacedHouse["kind"]) => {
+    const currentKind = playerSlotKinds[slotIdx] ?? null;
+    if (currentKind === nextKind) return;
+    const happinessGain =
+      currentKind == null && nextKind === "base"
+        ? 4
+        : currentKind === "base" && nextKind === "mid"
+          ? 8
+          : currentKind === "base" && nextKind === "full"
+            ? 14
+            : currentKind === "mid" && nextKind === "full"
+              ? 8
+              : 0;
+
     setPlayerSlotKinds((prev) => {
-      if (prev[slotIdx] === nextKind) return prev;
       const next = [...prev];
       next[slotIdx] = nextKind;
       return next;
     });
+
+    if (happinessGain > 0 && playerBoard) {
+      const slotHouse = playerBoard.houses.find((h) => h.padIndex === slotIdx);
+      if (slotHouse) {
+        setHouseSession((prev) => {
+          const s = prev[slotHouse.id];
+          if (!s) return prev;
+          return {
+            ...prev,
+            [slotHouse.id]: {
+              ...s,
+              happiness: Math.max(0, Math.min(100, s.happiness + happinessGain)),
+            },
+          };
+        });
+      }
+    }
+
     const now = Date.now();
-    const noticeText = `Slot ${slotIdx + 1} upgraded to ${nextKind}.`;
+    const noticeText =
+      happinessGain > 0
+        ? `Slot ${slotIdx + 1} upgraded to ${nextKind}. Happiness +${happinessGain}.`
+        : `Slot ${slotIdx + 1} upgraded to ${nextKind}.`;
     setEventFeed((prev) => [{ id: `${now}-slot-${slotIdx}-${nextKind}`, text: noticeText, expiresAt: now + 7000 }, ...prev].slice(0, 4));
   };
 
@@ -1238,53 +1271,69 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
       ) : null}
 
       {isBuyModalOpen ? (
-        <Modal title="House Buy / Upgrade" onClose={() => setIsBuyModalOpen(false)}>
-          <div className="grid max-h-[70vh] gap-3 overflow-y-auto sm:grid-cols-2">
-            {playerSlotKinds.map((kind, idx) => {
-              const canUpgradeToMid = kind === "base";
-              const canUpgradeToFull = kind === "base" || kind === "mid";
-              return (
-                <div key={`buy-slot-${idx}`} className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-3">
-                  <div className="text-xs uppercase tracking-wide text-zinc-400">Slot {idx + 1}</div>
-                  <div className="mt-1 text-sm font-semibold text-zinc-100">
-                    {kind ? `${kind} house` : "Empty lot"}
-                  </div>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {!kind ? (
-                      <button
-                        type="button"
-                        className="rounded-md border border-cyan-500/40 bg-cyan-600/20 px-2 py-1 text-xs font-semibold text-cyan-200 hover:bg-cyan-600/30"
-                        onClick={() => updatePlayerSlotKind(idx, "base")}
-                      >
-                        Buy Base (temp free)
-                      </button>
-                    ) : null}
-                    {canUpgradeToMid ? (
-                      <button
-                        type="button"
-                        className="rounded-md border border-amber-500/40 bg-amber-600/20 px-2 py-1 text-xs font-semibold text-amber-200 hover:bg-amber-600/30"
-                        onClick={() => updatePlayerSlotKind(idx, "mid")}
-                      >
-                        Upgrade to Mid (${MID_UPGRADE_COST})
-                      </button>
-                    ) : null}
-                    {canUpgradeToFull ? (
-                      <button
-                        type="button"
-                        className="rounded-md border border-emerald-500/40 bg-emerald-600/20 px-2 py-1 text-xs font-semibold text-emerald-200 hover:bg-emerald-600/30"
-                        onClick={() => updatePlayerSlotKind(idx, "full")}
-                      >
-                        Upgrade to Full (${FULL_UPGRADE_COST})
-                      </button>
-                    ) : null}
-                    {kind === "full" ? <span className="text-xs font-semibold text-emerald-300">Maxed out</span> : null}
-                  </div>
-                </div>
-              );
-            })}
+        <div className="fixed right-4 top-4 z-[140] w-[min(520px,calc(100vw-2rem))]" data-ui-button="1">
+          <div className="rounded-md border border-zinc-700 bg-zinc-950/92 shadow-2xl backdrop-blur-sm">
+            <div className="flex items-center justify-between border-b border-zinc-800 px-3 py-2">
+              <div className="text-xs uppercase tracking-wide text-zinc-200">House Buy / Upgrade</div>
+              <button
+                type="button"
+                data-ui-button="1"
+                className="rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-[11px] text-zinc-300 hover:bg-zinc-800"
+                onClick={() => setIsBuyModalOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+            <div className="max-h-[70vh] overflow-y-auto p-3">
+              <div className="grid gap-3 sm:grid-cols-2">
+                {playerSlotKinds.map((kind, idx) => {
+                  const canUpgradeToMid = kind === "base";
+                  const canUpgradeToFull = kind === "base" || kind === "mid";
+                  return (
+                    <div key={`buy-slot-${idx}`} className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-3">
+                      <div className="text-xs uppercase tracking-wide text-zinc-400">Slot {idx + 1}</div>
+                      <div className="mt-1 text-sm font-semibold text-zinc-100">{kind ? `${kind} house` : "Empty lot"}</div>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {!kind ? (
+                          <button
+                            type="button"
+                            data-ui-button="1"
+                            className="rounded-md border border-cyan-500/40 bg-cyan-600/20 px-2 py-1 text-xs font-semibold text-cyan-200 hover:bg-cyan-600/30"
+                            onClick={() => updatePlayerSlotKind(idx, "base")}
+                          >
+                            Buy Base (temp free)
+                          </button>
+                        ) : null}
+                        {canUpgradeToMid ? (
+                          <button
+                            type="button"
+                            data-ui-button="1"
+                            className="rounded-md border border-amber-500/40 bg-amber-600/20 px-2 py-1 text-xs font-semibold text-amber-200 hover:bg-amber-600/30"
+                            onClick={() => updatePlayerSlotKind(idx, "mid")}
+                          >
+                            Upgrade to Mid (${MID_UPGRADE_COST})
+                          </button>
+                        ) : null}
+                        {canUpgradeToFull ? (
+                          <button
+                            type="button"
+                            data-ui-button="1"
+                            className="rounded-md border border-emerald-500/40 bg-emerald-600/20 px-2 py-1 text-xs font-semibold text-emerald-200 hover:bg-emerald-600/30"
+                            onClick={() => updatePlayerSlotKind(idx, "full")}
+                          >
+                            Upgrade to Full (${FULL_UPGRADE_COST})
+                          </button>
+                        ) : null}
+                        {kind === "full" ? <span className="text-xs font-semibold text-emerald-300">Maxed out</span> : null}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="mt-3 text-xs text-zinc-400">Temporary economy mode: upgrades are always allowed for prototyping.</div>
+            </div>
           </div>
-          <div className="mt-3 text-xs text-zinc-400">Temporary economy mode: upgrades are always allowed for prototyping.</div>
-        </Modal>
+        </div>
       ) : null}
 
     </div>
