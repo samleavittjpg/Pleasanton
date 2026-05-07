@@ -151,10 +151,13 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
   const [eventFeed, setEventFeed] = useState<ToastNotice[]>([]);
   const [isBuyModalOpen, setIsBuyModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isVandalizePromptOpen, setIsVandalizePromptOpen] = useState(false);
+  const [vandalizeUnlocked, setVandalizeUnlocked] = useState(false);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [isEndReportOpen, setIsEndReportOpen] = useState(false);
   const [isMaintenanceModalOpen, setIsMaintenanceModalOpen] = useState(false);
   const [playerMoney, setPlayerMoney] = useState(5000);
+  const [maintenanceCompletedCount, setMaintenanceCompletedCount] = useState(0);
   const [moneyCollectedTotal, setMoneyCollectedTotal] = useState(0);
   const [happinessHistory, setHappinessHistory] = useState<HappinessPoint[]>([{ tSec: 0, mood: 72 }]);
   const [vandalismByNeighbor, setVandalismByNeighbor] = useState<Record<string, number>>({});
@@ -669,6 +672,7 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
     if (task.cost > 0) {
       setPlayerMoney((m) => Math.max(0, m - task.cost));
     }
+    setMaintenanceCompletedCount((n) => n + 1);
     if (task.kind === "warning") pushToast("Warning sent. Happiness increased.");
     else if (task.kind === "enforce") pushToast("Violation enforced. Happiness increased.");
     else if (task.kind === "repair_small") pushToast("Small repair done. Paid for fixes.");
@@ -923,7 +927,7 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
           type="button"
           data-ui-button="1"
           className="group -ml-[13px] flex h-[100px] w-[100px] items-center justify-center transition duration-150 ease-out hover:scale-105 active:scale-95"
-          onClick={() => setMoodPanelOpen((open) => !open)}
+          onClick={() => setIsVandalizePromptOpen(true)}
           aria-label="Open vandalism overview"
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -951,6 +955,88 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
           />
         </button>
       </div>
+
+      {isVandalizePromptOpen ? (
+        <Modal title="Want to Vandalize" onClose={() => setIsVandalizePromptOpen(false)}>
+          {!vandalizeUnlocked ? (
+            <div className="space-y-3 text-xs text-zinc-200">
+              <button
+                type="button"
+                className={`w-full rounded-md border px-3 py-2 text-xs font-semibold uppercase ${
+                  maintenanceCompletedCount >= 20
+                    ? "border-amber-500/40 bg-amber-500/20 text-amber-200 hover:bg-amber-500/30"
+                    : "cursor-not-allowed border-zinc-700 bg-zinc-800 text-zinc-500"
+                }`}
+                disabled={maintenanceCompletedCount < 20}
+                onClick={() => {
+                  setVandalizeUnlocked(true);
+                  pushToast("Vandalize unlocked via maintenance milestone.");
+                }}
+              >
+                Complete 20 Maintenance tasks ({maintenanceCompletedCount}/20)
+              </button>
+
+              <button
+                type="button"
+                className={`flex w-full items-center justify-center gap-2 rounded-md border px-3 py-2 text-xs font-semibold uppercase ${
+                  playerMoney >= 1500
+                    ? "border-emerald-500/40 bg-emerald-600/20 text-emerald-200 hover:bg-emerald-600/30"
+                    : "cursor-not-allowed border-zinc-700 bg-zinc-800 text-zinc-500"
+                }`}
+                disabled={playerMoney < 1500}
+                onClick={() => {
+                  if (playerMoney < 1500) return;
+                  setPlayerMoney((m) => m - 1500);
+                  setVandalizeUnlocked(true);
+                  pushToast("Paid $1,500 to unlock vandalize.");
+                }}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/Icons/money1icon.png" alt="" className="h-4 w-4 [image-rendering:pixelated]" />
+                Pay 1,500
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-2 text-xs text-zinc-200">
+              <div className="text-[11px] uppercase tracking-wide text-zinc-300">Choose vandalize action</div>
+              <button
+                type="button"
+                className="flex w-full items-center justify-between gap-2 rounded-md border border-amber-500/35 bg-amber-500/15 px-3 py-2 font-semibold text-amber-200 hover:bg-amber-500/25"
+                onClick={() => {
+                  pushToast("Egg attack launched.");
+                  setIsVandalizePromptOpen(false);
+                }}
+              >
+                <span>Egg</span>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/Vandalize/Egg.png" alt="" className="h-5 w-5 [image-rendering:pixelated]" />
+              </button>
+              <button
+                type="button"
+                className="w-full rounded-md border border-fuchsia-500/35 bg-fuchsia-500/15 px-3 py-2 text-left font-semibold text-fuchsia-200 hover:bg-fuchsia-500/25"
+                onClick={() => {
+                  pushToast("Spray paint deployed.");
+                  setIsVandalizePromptOpen(false);
+                }}
+              >
+                Spray Paint
+              </button>
+              <button
+                type="button"
+                className="flex w-full items-center justify-between gap-2 rounded-md border border-red-500/35 bg-red-500/15 px-3 py-2 font-semibold text-red-200 hover:bg-red-500/25"
+                onClick={() => {
+                  pushToast("Trash dumped in rival lane.");
+                  setIsVandalizePromptOpen(false);
+                }}
+              >
+                <span>Dump Trash</span>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/bins/trashpile1.png" alt="" className="h-5 w-5 [image-rendering:pixelated]" />
+              </button>
+            </div>
+          )}
+        </Modal>
+      ) : null}
 
       {eventFeed.length ? (
         <div className="fixed bottom-4 right-4 z-[120] w-[360px] space-y-2 pointer-events-none" data-ui-button="1">
