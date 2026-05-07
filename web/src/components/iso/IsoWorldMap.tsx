@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { HouseVariantId } from "../../lib/houseCatalog";
 import { getHouseVariant, HOUSE_VARIANTS } from "../../lib/houseCatalog";
@@ -58,6 +59,7 @@ type ToastNotice = {
   text: string;
   expiresAt: number;
 };
+type HappinessPoint = { tSec: number; mood: number };
 
 // This map is intentionally minimal: just the neighborhood pad tile and houses.
 const WORLD_W = 2600;
@@ -132,6 +134,7 @@ function MoodRow({ label, value, inverse }: { label: string; value: number; inve
 }
 
 export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props) {
+  const router = useRouter();
   const scrollRef = useRef<HTMLDivElement>(null);
   const centerRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{
@@ -148,12 +151,18 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
   const [eventFeed, setEventFeed] = useState<ToastNotice[]>([]);
   const [isBuyModalOpen, setIsBuyModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [showLeaderboard, setShowLeaderboard] = useState(false);
+  const [isEndReportOpen, setIsEndReportOpen] = useState(false);
   const [isMaintenanceModalOpen, setIsMaintenanceModalOpen] = useState(false);
   const [playerMoney, setPlayerMoney] = useState(5000);
+  const [moneyCollectedTotal, setMoneyCollectedTotal] = useState(0);
+  const [happinessHistory, setHappinessHistory] = useState<HappinessPoint[]>([{ tSec: 0, mood: 72 }]);
+  const [vandalismByNeighbor, setVandalismByNeighbor] = useState<Record<string, number>>({});
   const [playerSlotKinds, setPlayerSlotKinds] = useState<Array<PlacedHouse["kind"] | null>>(() => initPlayerSlotKinds(playerVariantId));
   const [mapZoom, setMapZoom] = useState(1);
   const [moodPanelOpen, setMoodPanelOpen] = useState(false);
   const houseSessionRef = useRef<Record<string, HouseSessionState>>({});
+  const gameStartMsRef = useRef<number>(Date.now());
 
   const bumpMapZoom = (delta: number) => {
     const el = scrollRef.current;
@@ -274,6 +283,29 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
   }, [houseSession]);
 
   const playerBoard = scene.boards.find((b) => b.isPlayer) ?? null;
+  const rivalNeighborhoods = useMemo(() => scene.boards.filter((b) => !b.isPlayer).map((b) => b.ownerLabel), [scene.boards]);
+  const leaderboardRows = useMemo(() => {
+    return scene.boards
+      .map((board) => {
+        const boardSessions = board.houses.map((h) => houseSession[h.id]).filter(Boolean) as HouseSessionState[];
+        const homes = boardSessions.length || 1;
+        const avgHappiness = boardSessions.length
+          ? Math.round(boardSessions.reduce((sum, s) => sum + s.happiness, 0) / boardSessions.length)
+          : 0;
+        const occupiedPct = boardSessions.length
+          ? Math.round((boardSessions.filter((s) => s.occupied).length / homes) * 100)
+          : 0;
+        return {
+          boardId: board.id,
+          ownerLabel: board.ownerLabel,
+          isPlayer: board.isPlayer,
+          progressScore: Math.round(avgHappiness * 0.7 + occupiedPct * 0.3),
+          avgHappiness,
+          occupiedPct,
+        };
+      })
+      .sort((a, b) => b.progressScore - a.progressScore);
+  }, [houseSession, scene.boards]);
   const playerHouseIds = useMemo(() => new Set((playerBoard?.houses ?? []).map((h) => h.id)), [playerBoard]);
   const playerHomes = useMemo(
     () => (playerBoard?.houses ?? []).map((h) => houseSession[h.id]).filter((h): h is HouseSessionState => Boolean(h)),
@@ -290,6 +322,7 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
   useEffect(() => {
     const id = window.setInterval(() => {
       const notices: string[] = [];
+      const vandalizers: string[] = [];
       setHouseSession((prev) => {
         const now = Date.now();
         let changed = false;
@@ -400,6 +433,10 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
             const event = incident.text;
             const incidentTask = incidentToMaintenanceTask(houseId, now, incident);
             const nextTasks = incidentTask ? [...item.maintenanceTasks, incidentTask] : item.maintenanceTasks;
+            const attackerLabel =
+              rivalNeighborhoods.length > 0
+                ? rivalNeighborhoods[Math.abs(hash(`${houseId}:${now}`)) % rivalNeighborhoods.length]!
+                : "Unknown rival";
             item = {
               ...item,
               happiness: Math.max(0, item.happiness - (5 + (hash(`${houseId}:${now}`) % 8))),
@@ -407,7 +444,8 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
               nextIncidentAt: now + randomInRangeMs(60, 120),
               maintenanceTasks: nextTasks,
             };
-            notices.push(event);
+            notices.push(`${event} (${attackerLabel})`);
+            vandalizers.push(attackerLabel);
             changed = true;
           }
 
@@ -443,9 +481,16 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
         }));
         setEventFeed((prev) => [...nextNotices, ...prev].slice(0, 4));
       }
+      if (vandalizers.length) {
+        setVandalismByNeighbor((prev) => {
+          const next = { ...prev };
+          for (const label of vandalizers) next[label] = (next[label] ?? 0) + 1;
+          return next;
+        });
+      }
     }, 1000);
     return () => window.clearInterval(id);
-  }, [playerHouseIds]);
+  }, [playerHouseIds, rivalNeighborhoods]);
 
   useEffect(() => {
     if (!eventFeed.length) return;
@@ -467,6 +512,7 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
       }, 0);
       if (payout <= 0) return;
       setPlayerMoney((m) => m + payout);
+      setMoneyCollectedTotal((m) => m + payout);
       const now = Date.now();
       setEventFeed((prev) => [{ id: `${now}-income`, text: `Collected $${payout} tenant contribution.`, expiresAt: now + 7000 }, ...prev].slice(0, 4));
     }, 30000);
@@ -532,6 +578,22 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
     }
     return false;
   })();
+  const reportVandalRows = useMemo(
+    () => Object.entries(vandalismByNeighbor).sort((a, b) => b[1] - a[1]),
+    [vandalismByNeighbor]
+  );
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      const tSec = Math.max(0, Math.round((Date.now() - gameStartMsRef.current) / 1000));
+      setHappinessHistory((prev) => {
+        const last = prev[prev.length - 1];
+        if (last && Math.abs(last.mood - neighborhoodMood) < 1 && tSec - last.tSec < 10) return prev;
+        return [...prev.slice(-59), { tSec, mood: neighborhoodMood }];
+      });
+    }, 5000);
+    return () => window.clearInterval(id);
+  }, [neighborhoodMood]);
   const updatePlayerSlotKind = (slotIdx: number, nextKind: PlacedHouse["kind"]) => {
     setPlayerSlotKinds((prev) => {
       if (prev[slotIdx] === nextKind) return prev;
@@ -946,7 +1008,127 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
 
       {isSettingsOpen ? (
         <Modal title="Settings" onClose={() => setIsSettingsOpen(false)}>
-          <div className="text-xs text-zinc-200">Neighborhood settings panel coming soon.</div>
+          <div className="space-y-3 text-xs text-zinc-200">
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                className="rounded-md border border-red-500/40 bg-red-600/20 px-3 py-2 text-xs font-semibold text-red-200 hover:bg-red-600/30"
+                onClick={() => {
+                  setIsSettingsOpen(false);
+                  setShowLeaderboard(false);
+                  setIsEndReportOpen(true);
+                }}
+              >
+                End game
+              </button>
+              <button
+                type="button"
+                className="rounded-md border border-sky-500/40 bg-sky-600/20 px-3 py-2 text-xs font-semibold text-sky-200 hover:bg-sky-600/30"
+                onClick={() => setShowLeaderboard((v) => !v)}
+              >
+                Leaderboard
+              </button>
+            </div>
+
+            {showLeaderboard ? (
+              <div className="max-h-[45vh] overflow-y-auto rounded-md border border-zinc-700 bg-zinc-900/40 p-2">
+                <div className="mb-2 text-[11px] uppercase tracking-wide text-zinc-300">Neighborhood progress</div>
+                <div className="space-y-2">
+                  {leaderboardRows.map((row, idx) => (
+                    <div
+                      key={row.boardId}
+                      className={`rounded border px-2 py-1.5 ${row.isPlayer ? "border-amber-400/50 bg-amber-900/20" : "border-zinc-700 bg-zinc-900/40"}`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] uppercase tracking-wide text-zinc-100">
+                          #{idx + 1} {row.ownerLabel}
+                          {row.isPlayer ? " (you)" : ""}
+                        </span>
+                        <span className="text-[11px] text-zinc-300">{row.progressScore}%</span>
+                      </div>
+                      <div className="mt-1 text-[10px] text-zinc-400">Mood {row.avgHappiness}% · Occupied {row.occupiedPct}%</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </Modal>
+      ) : null}
+
+      {isEndReportOpen ? (
+        <Modal title="End game report" onClose={() => setIsEndReportOpen(false)}>
+          <div className="space-y-3 text-xs text-zinc-200">
+            <div className="rounded-md border border-zinc-700 bg-zinc-900/40 p-2">
+              <div className="mb-2 text-[11px] uppercase tracking-wide text-zinc-300">Neighborhood happiness over time</div>
+              <svg viewBox="0 0 320 120" className="h-[120px] w-full rounded border border-zinc-700 bg-zinc-950/70" preserveAspectRatio="none">
+                <line x1="8" y1="108" x2="312" y2="108" stroke="#3f3f46" strokeWidth="1" />
+                <line x1="8" y1="8" x2="8" y2="108" stroke="#3f3f46" strokeWidth="1" />
+                {happinessHistory.length > 1 ? (
+                  <polyline
+                    fill="none"
+                    stroke="#facc15"
+                    strokeWidth="2"
+                    points={happinessHistory
+                      .map((p, i) => {
+                        const x = 8 + (i / Math.max(1, happinessHistory.length - 1)) * 304;
+                        const y = 108 - (Math.max(0, Math.min(100, p.mood)) / 100) * 100;
+                        return `${x},${y}`;
+                      })
+                      .join(" ")}
+                  />
+                ) : null}
+              </svg>
+              <div className="mt-1 text-[10px] text-zinc-400">Current mood: {neighborhoodMood}%</div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div className="rounded-md border border-zinc-700 bg-zinc-900/40 p-2">
+                <div className="text-[10px] uppercase tracking-wide text-zinc-400">Money collected</div>
+                <div className="mt-1 text-sm font-semibold text-emerald-300">${moneyCollectedTotal}</div>
+              </div>
+              <div className="rounded-md border border-zinc-700 bg-zinc-900/40 p-2">
+                <div className="text-[10px] uppercase tracking-wide text-zinc-400">Final progress</div>
+                <div className="mt-1 text-sm font-semibold text-amber-300">{clampedNeighborhoodMood}%</div>
+              </div>
+            </div>
+
+            <div className="rounded-md border border-zinc-700 bg-zinc-900/40 p-2">
+              <div className="mb-1 text-[10px] uppercase tracking-wide text-zinc-400">Who vandalized your houses</div>
+              {reportVandalRows.length ? (
+                <div className="space-y-1">
+                  {reportVandalRows.map(([label, count]) => (
+                    <div key={label} className="flex items-center justify-between text-[11px]">
+                      <span>{label}</span>
+                      <span className="text-red-300">{count}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-[11px] text-zinc-400">No vandalism incidents recorded.</div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-md border border-zinc-600 bg-zinc-800 px-3 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700"
+                onClick={() => setIsEndReportOpen(false)}
+              >
+                Back
+              </button>
+              <button
+                type="button"
+                className="rounded-md border border-red-500/40 bg-red-600/20 px-3 py-1.5 text-xs font-semibold text-red-200 hover:bg-red-600/30"
+                onClick={() => {
+                  setIsEndReportOpen(false);
+                  router.push("/create-match");
+                }}
+              >
+                Exit to lobby
+              </button>
+            </div>
+          </div>
         </Modal>
       ) : null}
 
