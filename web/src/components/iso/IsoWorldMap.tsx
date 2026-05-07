@@ -60,6 +60,8 @@ type ToastNotice = {
   expiresAt: number;
 };
 type HappinessPoint = { tSec: number; mood: number };
+type EggPlacement = { x: number; y: number; src: "/Vandalize/Egg.png" | "/Vandalize/Egg 2.png" };
+type DumpPlacement = { x: number; y: number; src: string };
 
 // This map is intentionally minimal: just the neighborhood pad tile and houses.
 const WORLD_W = 2600;
@@ -152,18 +154,75 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
   const [eventFeed, setEventFeed] = useState<ToastNotice[]>([]);
   const [isBuyModalOpen, setIsBuyModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isVandalizePromptOpen, setIsVandalizePromptOpen] = useState(false);
+  const [vandalizeUnlocked, setVandalizeUnlocked] = useState(false);
+  const [pendingVandalizeMethod, setPendingVandalizeMethod] = useState<"egg" | "spray" | "trash" | null>(null);
+  const [eggAttackTargetHouseId, setEggAttackTargetHouseId] = useState<string | null>(null);
+  const [eggPlacements, setEggPlacements] = useState<Record<string, EggPlacement[]>>({});
+  const [dumpAttackTargetHouseId, setDumpAttackTargetHouseId] = useState<string | null>(null);
+  const [dumpPlacements, setDumpPlacements] = useState<Record<string, DumpPlacement[]>>({});
+  const [smallEggCursorUrl, setSmallEggCursorUrl] = useState<string | null>(null);
+  const [smallDumpCursorUrl, setSmallDumpCursorUrl] = useState<string | null>(null);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [isEndReportOpen, setIsEndReportOpen] = useState(false);
   const [isMaintenanceModalOpen, setIsMaintenanceModalOpen] = useState(false);
   const [playerMoney, setPlayerMoney] = useState(5000);
+  const [maintenanceCompletedCount, setMaintenanceCompletedCount] = useState(0);
   const [moneyCollectedTotal, setMoneyCollectedTotal] = useState(0);
-  const [happinessHistory, setHappinessHistory] = useState<HappinessPoint[]>([{ tSec: 0, mood: 72 }]);
+  const [happinessHistory, setHappinessHistory] = useState<HappinessPoint[]>([{ tSec: 0, mood: 100 }]);
   const [vandalismByNeighbor, setVandalismByNeighbor] = useState<Record<string, number>>({});
   const [playerSlotKinds, setPlayerSlotKinds] = useState<Array<PlacedHouse["kind"] | null>>(() => initPlayerSlotKinds(playerVariantId));
   const [mapZoom, setMapZoom] = useState(1);
   const [moodPanelOpen, setMoodPanelOpen] = useState(false);
   const houseSessionRef = useRef<Record<string, HouseSessionState>>({});
   const gameStartMsRef = useRef<number>(Date.now());
+  const eventIdSeqRef = useRef(0);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const img = new window.Image();
+    img.onload = () => {
+      const size = 30;
+      const canvas = document.createElement("canvas");
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.imageSmoothingEnabled = false;
+      ctx.clearRect(0, 0, size, size);
+      ctx.drawImage(img, 0, 0, size, size);
+      setSmallEggCursorUrl(canvas.toDataURL("image/png"));
+    };
+    img.src = "/Vandalize/Egg.png";
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const img = new window.Image();
+    img.onload = () => {
+      const size = 20;
+      const canvas = document.createElement("canvas");
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.imageSmoothingEnabled = false;
+      ctx.clearRect(0, 0, size, size);
+      ctx.drawImage(img, 0, 0, size, size);
+      setSmallDumpCursorUrl(canvas.toDataURL("image/png"));
+    };
+    img.src = "/bins/dumpingcursor.png";
+  }, []);
+
+  const forcedMapCursor = eggAttackTargetHouseId
+    ? `url('${smallEggCursorUrl ?? "/Vandalize/Egg.png"}') 5 5, auto`
+    : dumpAttackTargetHouseId
+      ? `url('${smallDumpCursorUrl ?? "/bins/dumpingcursor.png"}') 5 5, auto`
+      : undefined;
+
+  const nextEventId = (prefix: string) => {
+    eventIdSeqRef.current += 1;
+    return `${Date.now()}-${prefix}-${eventIdSeqRef.current}`;
+  };
 
   const bumpMapZoom = (delta: number) => {
     const el = scrollRef.current;
@@ -190,6 +249,22 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
         });
       });
       return next;
+    });
+  };
+  const focusMapOnHouse = (x: number, y: number, preferredZoom = 1.2) => {
+    const nextZoom = Math.min(MAP_ZOOM_MAX, Math.max(MAP_ZOOM_MIN, preferredZoom));
+    setMapZoom(nextZoom);
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const el = scrollRef.current;
+        if (!el) return;
+        const targetLeft = x * nextZoom - el.clientWidth / 2;
+        const targetTop = y * nextZoom - el.clientHeight / 2;
+        const maxLeft = Math.max(0, WORLD_W * nextZoom - el.clientWidth);
+        const maxTop = Math.max(0, WORLD_H * nextZoom - el.clientHeight);
+        el.scrollLeft = Math.min(maxLeft, Math.max(0, targetLeft));
+        el.scrollTop = Math.min(maxTop, Math.max(0, targetTop));
+      });
     });
   };
 
@@ -263,7 +338,7 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
           occupied: true,
           tenant: baseFamily,
           tenantMalicious: false,
-          happiness: tempHappinessScore(baseFamily.dailyAvgTrash, baseFamily.complaintsPerWeek),
+          happiness: 100,
           applicants: [],
           recentIncidents: [],
           nextApplicantAt: now + randomInRangeMs(10, 30),
@@ -284,7 +359,8 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
   }, [houseSession]);
 
   const playerBoard = scene.boards.find((b) => b.isPlayer) ?? null;
-  const rivalNeighborhoods = useMemo(() => scene.boards.filter((b) => !b.isPlayer).map((b) => b.ownerLabel), [scene.boards]);
+  const rivalBoards = useMemo(() => scene.boards.filter((b) => !b.isPlayer), [scene.boards]);
+  const rivalNeighborhoods = useMemo(() => rivalBoards.map((b) => b.ownerLabel), [rivalBoards]);
   const leaderboardRows = useMemo(() => {
     return scene.boards
       .map((board) => {
@@ -485,7 +561,7 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
       if (notices.length) {
         const now = Date.now();
         const nextNotices = notices.map((text, idx) => ({
-          id: `${now}-${idx}-${hash(text)}`,
+          id: nextEventId(`notice-${idx}-${hash(text)}`),
           text,
           expiresAt: now + 7000,
         }));
@@ -524,7 +600,7 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
       setPlayerMoney((m) => m + payout);
       setMoneyCollectedTotal((m) => m + payout);
       const now = Date.now();
-      setEventFeed((prev) => [{ id: `${now}-income`, text: `Collected $${payout} tenant contribution.`, expiresAt: now + 7000 }, ...prev].slice(0, 4));
+      setEventFeed((prev) => [{ id: nextEventId("income"), text: `Collected $${payout} tenant contribution.`, expiresAt: now + 7000 }, ...prev].slice(0, 4));
     }, 30000);
     return () => window.clearInterval(id);
   }, [playerBoard]);
@@ -546,7 +622,7 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
       }
     : null;
   const neighborhoodMood = useMemo(() => {
-    if (!playerHomes.length) return 72;
+    if (!playerHomes.length) return 100;
     const total = playerHomes.reduce((sum, home) => sum + home.happiness, 0);
     return Math.round(total / playerHomes.length);
   }, [playerHomes]);
@@ -646,12 +722,12 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
       happinessGain > 0
         ? `Slot ${slotIdx + 1} upgraded to ${nextKind}. Happiness +${happinessGain}.`
         : `Slot ${slotIdx + 1} upgraded to ${nextKind}.`;
-    setEventFeed((prev) => [{ id: `${now}-slot-${slotIdx}-${nextKind}`, text: noticeText, expiresAt: now + 7000 }, ...prev].slice(0, 4));
+    setEventFeed((prev) => [{ id: nextEventId(`slot-${slotIdx}-${nextKind}`), text: noticeText, expiresAt: now + 7000 }, ...prev].slice(0, 4));
   };
 
   const pushToast = (text: string) => {
     const now = Date.now();
-    setEventFeed((prev) => [{ id: `${now}-maint-${hash(text)}`, text, expiresAt: now + 7000 }, ...prev].slice(0, 4));
+    setEventFeed((prev) => [{ id: nextEventId(`maint-${hash(text)}`), text, expiresAt: now + 7000 }, ...prev].slice(0, 4));
   };
 
   const resolveMaintenanceTask = (houseId: string, task: MaintenanceTask) => {
@@ -670,6 +746,7 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
     if (task.cost > 0) {
       setPlayerMoney((m) => Math.max(0, m - task.cost));
     }
+    setMaintenanceCompletedCount((n) => n + 1);
     if (task.kind === "warning") pushToast("Warning sent. Happiness increased.");
     else if (task.kind === "enforce") pushToast("Violation enforced. Happiness increased.");
     else if (task.kind === "repair_small") pushToast("Small repair done. Paid for fixes.");
@@ -682,7 +759,7 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
       ref={scrollRef}
       className="h-full w-full select-none overflow-auto"
       style={{
-        cursor: didDrag ? "grabbing" : "grab",
+        cursor: forcedMapCursor ?? (didDrag ? "grabbing" : "grab"),
         // Fills letterboxing around the world when the viewport is larger than content.
         backgroundColor: "#1a2618",
       }}
@@ -860,6 +937,31 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
             houses={scene.allHouses}
             isPanning={() => didDrag}
             zoom={mapZoom}
+            forcedCursor={forcedMapCursor}
+            eggAttackTargetHouseId={eggAttackTargetHouseId}
+            eggPlacements={eggPlacements}
+            onEggPlaced={(houseId, placement) => {
+              setEggPlacements((prev) => {
+                const next = [...(prev[houseId] ?? []), placement];
+                if (next.length >= 3) {
+                  setEggAttackTargetHouseId(null);
+                  pushToast("Egg sequence complete. Returning to normal controls.");
+                }
+                return { ...prev, [houseId]: next.slice(0, 3) };
+              });
+            }}
+            dumpAttackTargetHouseId={dumpAttackTargetHouseId}
+            dumpPlacements={dumpPlacements}
+            onDumpPlaced={(houseId, placement) => {
+              setDumpPlacements((prev) => {
+                const next = [...(prev[houseId] ?? []), placement];
+                if (next.length >= 4) {
+                  setDumpAttackTargetHouseId(null);
+                  pushToast("Dump sequence complete. Returning to normal controls.");
+                }
+                return { ...prev, [houseId]: next.slice(0, 4) };
+              });
+            }}
             onHouseClick={(houseId) => setSelectedHouseId(houseId)}
             houseSession={houseSession}
             onPileCleaned={(houseId) =>
@@ -884,6 +986,50 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
             }
           />
         </div>
+        {pendingVandalizeMethod ? (
+          <div className="absolute inset-0 z-40" data-ui-button="1">
+            {rivalBoards.flatMap((board) =>
+              board.houses.map((house) => {
+                const size = Math.round(512 * house.scale);
+                const left = house.x - size / 2;
+                const top = house.y + HOUSE_OFFSET_Y_PX - size / 2;
+                return (
+                  <button
+                    key={`vandal-target-${board.id}-${house.id}`}
+                    type="button"
+                    data-ui-button="1"
+                    className="absolute border-2 border-fuchsia-400/80 bg-fuchsia-500/10 text-[10px] uppercase tracking-wide text-fuchsia-100 shadow-[0_0_0_2px_rgba(0,0,0,0.35)] hover:bg-fuchsia-500/25"
+                    style={{
+                      left: `${left}px`,
+                      top: `${top}px`,
+                      width: `${size}px`,
+                      height: `${size}px`,
+                      cursor: forcedMapCursor ?? "pointer",
+                    }}
+                    onClick={() => {
+                      focusMapOnHouse(house.x, house.y + HOUSE_OFFSET_Y_PX, 1.25);
+                      if (pendingVandalizeMethod === "egg") {
+                        setEggAttackTargetHouseId(house.id);
+                        setSelectedHouseId(house.id);
+                        pushToast(`Egg attack armed at ${board.ownerLabel}. Place 3 eggs on the target house.`);
+                      } else if (pendingVandalizeMethod === "trash") {
+                        setDumpAttackTargetHouseId(house.id);
+                        setSelectedHouseId(house.id);
+                        pushToast(`Dump attack armed at ${board.ownerLabel}. Place 4 dumps on the target house.`);
+                      } else {
+                        const actionLabel = "Spray paint";
+                        pushToast(`${actionLabel} launched at ${board.ownerLabel}.`);
+                      }
+                      setPendingVandalizeMethod(null);
+                    }}
+                  >
+                    Target
+                  </button>
+                );
+              })
+            )}
+          </div>
+        ) : null}
         </div>
       </div>
 
@@ -923,6 +1069,22 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
         <button
           type="button"
           data-ui-button="1"
+          className="group -ml-[13px] flex h-[100px] w-[100px] items-center justify-center transition duration-150 ease-out hover:scale-105 active:scale-95"
+          onClick={() => setIsVandalizePromptOpen(true)}
+          aria-label="Open vandalism overview"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            alt=""
+            src="/Icons/Vandalized.png"
+            draggable={false}
+            className="h-full w-full object-contain select-none transition duration-150 ease-out [-webkit-user-drag:none] [image-rendering:pixelated] group-hover:brightness-110 group-hover:[filter:drop-shadow(0_0_1px_rgba(239,68,68,0.98))_drop-shadow(0_0_3px_rgba(239,68,68,0.92))] group-active:brightness-95"
+          />
+        </button>
+
+        <button
+          type="button"
+          data-ui-button="1"
           className="group flex h-[56px] w-[56px] items-center justify-center rounded-md border-2 border-zinc-700 bg-zinc-900/92 p-2 transition duration-150 ease-out hover:scale-105 hover:border-zinc-500 hover:bg-zinc-800 active:scale-95"
           onClick={() => setIsSettingsOpen(true)}
           aria-label="Open settings"
@@ -936,6 +1098,142 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
           />
         </button>
       </div>
+
+      {pendingVandalizeMethod ? (
+        <div className="fixed right-4 top-4 z-[130]" data-ui-button="1">
+          <button
+            type="button"
+            data-ui-button="1"
+            className="rounded-md border border-zinc-700 bg-zinc-900/90 px-3 py-1.5 text-[11px] uppercase text-zinc-200 hover:bg-zinc-800"
+            onClick={() => {
+              setPendingVandalizeMethod(null);
+              setEggAttackTargetHouseId(null);
+              setDumpAttackTargetHouseId(null);
+            }}
+          >
+            Cancel Targeting
+          </button>
+        </div>
+      ) : null}
+
+      {isVandalizePromptOpen ? (
+        <Modal
+          title={pendingVandalizeMethod ? "Choose neighborhood target" : "Want to Vandalize"}
+          onClose={() => {
+            setIsVandalizePromptOpen(false);
+            setPendingVandalizeMethod(null);
+          }}
+        >
+          {!vandalizeUnlocked ? (
+            <div className="space-y-3 text-xs text-zinc-200">
+              <button
+                type="button"
+                className={`w-full rounded-md border px-3 py-2 text-xs font-semibold uppercase ${
+                  maintenanceCompletedCount >= 20
+                    ? "border-amber-500/40 bg-amber-500/20 text-amber-200 hover:bg-amber-500/30"
+                    : "cursor-not-allowed border-zinc-700 bg-zinc-800 text-zinc-500"
+                }`}
+                disabled={maintenanceCompletedCount < 20}
+                onClick={() => {
+                  setVandalizeUnlocked(true);
+                  setPendingVandalizeMethod(null);
+                  pushToast("Vandalize unlocked via maintenance milestone.");
+                }}
+              >
+                Complete 20 Maintenance tasks ({maintenanceCompletedCount}/20)
+              </button>
+
+              <button
+                type="button"
+                className={`flex w-full items-center justify-center gap-2 rounded-md border px-3 py-2 text-xs font-semibold uppercase ${
+                  playerMoney >= 1500
+                    ? "border-emerald-500/40 bg-emerald-600/20 text-emerald-200 hover:bg-emerald-600/30"
+                    : "cursor-not-allowed border-zinc-700 bg-zinc-800 text-zinc-500"
+                }`}
+                disabled={playerMoney < 1500}
+                onClick={() => {
+                  if (playerMoney < 1500) return;
+                  setPlayerMoney((m) => m - 1500);
+                  setVandalizeUnlocked(true);
+                  setPendingVandalizeMethod(null);
+                  pushToast("Paid $1,500 to unlock vandalize.");
+                }}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/Icons/money1icon.png" alt="" className="h-4 w-4 [image-rendering:pixelated]" />
+                Pay 1,500
+              </button>
+            </div>
+          ) : !pendingVandalizeMethod ? (
+            <div className="space-y-2 text-xs text-zinc-200">
+              <div className="text-[11px] uppercase tracking-wide text-zinc-300">Choose vandalize action</div>
+              <button
+                type="button"
+                className="flex w-full items-center justify-between gap-2 rounded-md border border-amber-500/35 bg-amber-500/15 px-3 py-2 font-semibold text-amber-200 hover:bg-amber-500/25"
+                onClick={() => {
+                  setPendingVandalizeMethod("egg");
+                }}
+              >
+                <span>Egg</span>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/Vandalize/Egg.png" alt="" className="h-5 w-5 [image-rendering:pixelated]" />
+              </button>
+              <button
+                type="button"
+                className="flex w-full items-center justify-between gap-2 rounded-md border border-fuchsia-500/35 bg-fuchsia-500/15 px-3 py-2 font-semibold text-fuchsia-200 hover:bg-fuchsia-500/25"
+                onClick={() => {
+                  setPendingVandalizeMethod("spray");
+                }}
+              >
+                <span>Spray Paint</span>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <span className="relative h-12 w-12 overflow-hidden">
+                  <img
+                    src="/Vandalize/Spraycan.png"
+                    alt=""
+                    className="absolute -top-3 left-0 h-12 w-12 [image-rendering:pixelated]"
+                  />
+                </span>
+              </button>
+              <button
+                type="button"
+                className="flex w-full items-center justify-between gap-2 rounded-md border border-red-500/35 bg-red-500/15 px-3 py-2 font-semibold text-red-200 hover:bg-red-500/25"
+                onClick={() => {
+                  setPendingVandalizeMethod("trash");
+                }}
+              >
+                <span>Dump Trash</span>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/bins/trashpile1.png" alt="" className="h-5 w-5 [image-rendering:pixelated]" />
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-3 text-xs text-zinc-200">
+              <div className="rounded-md border border-zinc-700 bg-zinc-900/40 px-3 py-2 text-[11px] text-zinc-300">
+                Now click a rival neighborhood directly on the map to vandalize it.
+              </div>
+              <button
+                type="button"
+                className="w-full rounded-md border border-fuchsia-500/35 bg-fuchsia-500/15 px-3 py-2 text-xs font-semibold uppercase text-fuchsia-200 hover:bg-fuchsia-500/25"
+                onClick={() => setIsVandalizePromptOpen(false)}
+              >
+                Select target on map
+              </button>
+              <button
+                type="button"
+                className="w-full rounded-md border border-zinc-700 bg-zinc-800 px-3 py-2 text-[11px] uppercase text-zinc-300 hover:bg-zinc-700"
+                onClick={() => {
+                  setPendingVandalizeMethod(null);
+                  setEggAttackTargetHouseId(null);
+                  setDumpAttackTargetHouseId(null);
+                }}
+              >
+                Back
+              </button>
+            </div>
+          )}
+        </Modal>
+      ) : null}
 
       {eventFeed.length ? (
         <div className="fixed bottom-4 right-4 z-[120] w-[360px] space-y-2 pointer-events-none" data-ui-button="1">
@@ -1433,6 +1731,13 @@ function MapHouses({
   onHouseClick,
   isPanning,
   zoom,
+  forcedCursor,
+  eggAttackTargetHouseId,
+  eggPlacements,
+  onEggPlaced,
+  dumpAttackTargetHouseId,
+  dumpPlacements,
+  onDumpPlaced,
   houseSession,
   onPileCleaned,
 }: {
@@ -1440,6 +1745,13 @@ function MapHouses({
   onHouseClick: (houseId: string) => void;
   isPanning: () => boolean;
   zoom: number;
+  forcedCursor?: string;
+  eggAttackTargetHouseId?: string | null;
+  eggPlacements: Record<string, EggPlacement[]>;
+  onEggPlaced: (houseId: string, placement: EggPlacement) => void;
+  dumpAttackTargetHouseId?: string | null;
+  dumpPlacements: Record<string, DumpPlacement[]>;
+  onDumpPlaced: (houseId: string, placement: DumpPlacement) => void;
   houseSession: Record<string, HouseSessionState>;
   onPileCleaned: (houseId: string) => void;
 }) {
@@ -1490,6 +1802,7 @@ function MapHouses({
     alphaCache.current.set(src, p);
     return p;
   };
+  const DUMP_DECAL_SRCS = ["/Vandalize/Juice.png", "/Vandalize/Dump%201.png", "/Vandalize/Bag.png", "/Vandalize/Apple.png"] as const;
 
   function hitTestHousePixel(h: PlacedHouse, localX: number, localY: number) {
     // Convert board-local mouse coords into house-local box coords (before translate(-50%,-50%)).
@@ -1517,6 +1830,13 @@ function MapHouses({
       const a = data[idx] ?? 0;
       return a > 10;
     });
+  }
+
+  function getHouseLocalCoords(h: PlacedHouse, localX: number, localY: number) {
+    const size = Math.round(512 * h.scale);
+    const left = h.x - size / 2;
+    const top = h.y + HOUSE_OFFSET_Y_PX - size / 2;
+    return { size, x: localX - left, y: localY - top };
   }
 
   const scheduleHoverUpdate = (clientX: number, clientY: number) => {
@@ -1562,6 +1882,36 @@ function MapHouses({
         if (isPanning()) return;
         const h = houses.find((x) => x.id === id);
         if (!h) return;
+        const rect = containerRef.current?.getBoundingClientRect();
+        const localX = rect ? (e.clientX - rect.left) / zoom : h.x;
+        const localY = rect ? (e.clientY - rect.top) / zoom : h.y;
+        if (dumpAttackTargetHouseId) {
+          if (h.id !== dumpAttackTargetHouseId) {
+            e.preventDefault();
+            return;
+          }
+          const local = getHouseLocalCoords(h, localX, localY);
+          const nx = Math.max(0.1, Math.min(0.9, local.x / Math.max(1, local.size)));
+          const ny = Math.max(0.12, Math.min(0.88, local.y / Math.max(1, local.size)));
+          const src = DUMP_DECAL_SRCS[Math.floor(Math.random() * DUMP_DECAL_SRCS.length)] ?? "/Vandalize/Dump 1.png";
+          onDumpPlaced(h.id, { x: nx, y: ny, src });
+          e.preventDefault();
+          return;
+        }
+        if (eggAttackTargetHouseId) {
+          if (h.id !== eggAttackTargetHouseId) {
+            e.preventDefault();
+            return;
+          }
+          const local = getHouseLocalCoords(h, localX, localY);
+          const nx = Math.max(0.1, Math.min(0.9, local.x / Math.max(1, local.size)));
+          const ny = Math.max(0.12, Math.min(0.88, local.y / Math.max(1, local.size)));
+          const used = (eggPlacements[h.id]?.length ?? 0) + 1;
+          const src = (used % 2 === 0 ? "/Vandalize/Egg 2.png" : "/Vandalize/Egg.png") as "/Vandalize/Egg.png" | "/Vandalize/Egg 2.png";
+          onEggPlaced(h.id, { x: nx, y: ny, src });
+          e.preventDefault();
+          return;
+        }
         const clicksDone = trashPileClicks[h.id] ?? 0;
         const requiredClicks = trashPileClicksRequired(h.id);
         const activePile = h.isPlayerTeam && houseTrashPileFor(h, clicksDone >= requiredClicks, houseSession[h.id]);
@@ -1582,7 +1932,7 @@ function MapHouses({
       }}
       style={{
         touchAction: "none",
-        cursor: hoveredActivePile ? "none" : undefined,
+        cursor: forcedCursor ?? (hoveredActivePile ? "none" : undefined),
       }}
       onMouseMove={(e) => {
         const rect = containerRef.current?.getBoundingClientRect();
@@ -1620,6 +1970,8 @@ function MapHouses({
           if (hasApplicantAlert) alertIcons.push("/Icons/tenanticon.png");
           if (hasIncidentAlert) alertIcons.push("/Icons/exclamationicon.png");
           const visibleAlertIcons = alertIcons.slice(0, 3);
+          const eggs = eggPlacements[h.id] ?? [];
+          const dumps = dumpPlacements[h.id] ?? [];
           return (
         <div
           key={h.id}
@@ -1674,6 +2026,49 @@ function MapHouses({
                 imageRendering: "pixelated",
               }}
             />
+
+            {eggs.map((egg, idx) => (
+              <div
+                key={`egg-${h.id}-${idx}`}
+                className="absolute"
+                style={{
+                  left: `${Math.round(512 * h.scale * egg.x)}px`,
+                  top: `${Math.round(512 * h.scale * egg.y)}px`,
+                  width: `${Math.max(20, Math.round(78 * h.scale))}px`,
+                  height: `${Math.max(20, Math.round(78 * h.scale))}px`,
+                  transform: "translate(-50%, -50%)",
+                  pointerEvents: "none",
+                  backgroundImage: `url(${egg.src})`,
+                  backgroundRepeat: "no-repeat",
+                  backgroundPosition: "center",
+                  backgroundSize: "contain",
+                  imageRendering: "pixelated",
+                }}
+              />
+            ))}
+            {dumps.map((dump, idx) => (
+              <div
+                key={`dump-${h.id}-${idx}`}
+                className="absolute"
+                style={{
+                  left: `${Math.round(512 * h.scale * dump.x)}px`,
+                  top: `${Math.round(512 * h.scale * dump.y)}px`,
+                  width: `${Math.max(28, Math.round(92 * h.scale))}px`,
+                  height: `${Math.max(28, Math.round(92 * h.scale))}px`,
+                  transform: "translate(-50%, -50%)",
+                  pointerEvents: "none",
+                  zIndex: 4,
+                }}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={dump.src}
+                  alt=""
+                  draggable={false}
+                  className="h-full w-full object-contain [image-rendering:pixelated]"
+                />
+              </div>
+            ))}
 
             <>
               {houseBinsFor(h).map((bin, idx) => (

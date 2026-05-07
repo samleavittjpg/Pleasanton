@@ -8,12 +8,15 @@ import { useRouter } from "next/navigation";
 import { HOA_WELCOME_SESSION_KEY } from "@/lib/hoa-welcome";
 import { connectClient } from "../../lib/ws";
 
-const SKIN_TONES = ["#f8d7b5", "#d9a97f", "#ad7f58", "#7f5a3f"] as const;
-const SHIRT_COLORS = ["#8cc8ff", "#7fd38a", "#f5ae75", "#d39af5"] as const;
-const HAIR_COLORS = ["#2f2523", "#5d3d2b", "#d8b26e", "#5a5a5a"] as const;
-const EYE_COLORS = ["#131313", "#3b82f6", "#22c55e", "#f97316", "#a855f7"] as const;
-const HAIR_STYLES = ["short", "spiky", "bob", "buzz"] as const;
-type HairStyle = (typeof HAIR_STYLES)[number];
+const PFP_OPTIONS = [
+  "/pfp/2pfp.png",
+  "/pfp/3pfp.png",
+  "/pfp/4pfp.png",
+  "/pfp/5pfp.png",
+  "/pfp/6pfp.png",
+  "/pfp/7pfp.png",
+  "/pfp/Untitled_Artwork.png",
+] as const;
 
 export default function CreateMatchPage() {
   const router = useRouter();
@@ -21,11 +24,7 @@ export default function CreateMatchPage() {
   const [matchId, setMatchId] = useState("");
   const [lengthMinutes, setLengthMinutes] = useState<10 | 20 | 30>(10);
   const [status, setStatus] = useState<string>("");
-  const [skinTone, setSkinTone] = useState<string>(SKIN_TONES[0]);
-  const [shirtColor, setShirtColor] = useState<string>(SHIRT_COLORS[0]);
-  const [hairColor, setHairColor] = useState<string>(HAIR_COLORS[0]);
-  const [eyeColor, setEyeColor] = useState<string>(EYE_COLORS[0]);
-  const [hairStyle, setHairStyle] = useState<HairStyle>(HAIR_STYLES[0]);
+  const [selectedPfpIndex, setSelectedPfpIndex] = useState(0);
   const [customizerStatus, setCustomizerStatus] = useState("");
   const [doneError, setDoneError] = useState("");
 
@@ -39,25 +38,23 @@ export default function CreateMatchPage() {
   const [authBusy, setAuthBusy] = useState(false);
 
   const client = useMemo(() => connectClient(), []);
-  const randomFrom = <T,>(list: readonly T[]) => list[Math.floor(Math.random() * list.length)];
+  const selectedPfp = PFP_OPTIONS[selectedPfpIndex] ?? PFP_OPTIONS[0];
 
   const buildCharacter = (): SavedCharacter => ({
-    skinTone,
-    shirtColor,
-    hairColor,
-    eyeColor,
-    hairStyle,
+    skinTone: "#f8d7b5",
+    shirtColor: "#8cc8ff",
+    hairColor: "#2f2523",
+    eyeColor: "#131313",
+    hairStyle: "short",
     displayName: name.trim() || "Anonymous",
+    profilePicture: selectedPfp,
   });
 
   const applyFromProfile = (p: SavedCharacter) => {
     setName(p.displayName);
-    setSkinTone(p.skinTone);
-    setShirtColor(p.shirtColor);
-    setHairColor(p.hairColor);
-    setEyeColor(p.eyeColor);
-    if ((HAIR_STYLES as readonly string[]).includes(p.hairStyle)) {
-      setHairStyle(p.hairStyle as HairStyle);
+    if (p.profilePicture) {
+      const idx = PFP_OPTIONS.findIndex((src) => src === p.profilePicture);
+      if (idx >= 0) setSelectedPfpIndex(idx);
     }
     localStorage.setItem("pleasantonCharacter", JSON.stringify(p));
     localStorage.setItem("pleasantonPlayerName", p.displayName.trim() || "Anonymous");
@@ -87,13 +84,10 @@ export default function CreateMatchPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one-time session restore on mount
   }, []);
 
-  const randomizeCharacter = () => {
-    setSkinTone(randomFrom(SKIN_TONES));
-    setShirtColor(randomFrom(SHIRT_COLORS));
-    setHairColor(randomFrom(HAIR_COLORS));
-    setEyeColor(randomFrom(EYE_COLORS));
-    setHairStyle(randomFrom(HAIR_STYLES));
-    setCustomizerStatus("Randomized");
+  const stepPfp = (delta: number) => {
+    const len = PFP_OPTIONS.length;
+    if (!len) return;
+    setSelectedPfpIndex((prev) => (prev + delta + len) % len);
   };
 
   const saveCharacterOnly = async () => {
@@ -424,105 +418,47 @@ export default function CreateMatchPage() {
           </section>
 
           <aside className="rounded-none border-2 border-white/25 bg-sky-600/20 p-5 backdrop-blur-sm">
-            <h2 className="text-xs uppercase text-white/95">Character Prototype</h2>
-            <div className="character-stage torso-stage mt-4">
-              <div className={`character-hair hair-${hairStyle}`} style={{ backgroundColor: hairColor }} />
-              <div className="character-head" style={{ backgroundColor: skinTone }} />
-              <div className="character-eyes">
-                <span style={{ backgroundColor: eyeColor }} />
-                <span style={{ backgroundColor: eyeColor }} />
+            <h2 className="text-xs uppercase text-white/95">Profile Picture</h2>
+            <div className="mt-4 rounded-none border-2 border-sky-300/60 bg-sky-900/20 p-3">
+              <div className="mb-2 text-[10px] uppercase text-white/80">Choose your PFP</div>
+              <div className="flex items-center justify-between gap-2">
+                <button
+                  type="button"
+                  className="rounded-none border-2 border-white/50 bg-white/10 px-2 py-2 text-[10px] uppercase text-white hover:bg-white/20"
+                  onClick={() => stepPfp(-1)}
+                  aria-label="Previous profile picture"
+                >
+                  {"<"}
+                </button>
+                <div className="flex-1">
+                  <div className="mx-auto flex h-40 w-40 items-center justify-center overflow-hidden rounded-none border-2 border-white/60 bg-sky-100/90">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={selectedPfp}
+                      alt="Selected profile picture"
+                      className="h-full w-full object-contain [image-rendering:pixelated]"
+                    />
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="rounded-none border-2 border-white/50 bg-white/10 px-2 py-2 text-[10px] uppercase text-white hover:bg-white/20"
+                  onClick={() => stepPfp(1)}
+                  aria-label="Next profile picture"
+                >
+                  {">"}
+                </button>
               </div>
-              <div className="character-body" style={{ backgroundColor: shirtColor }} />
             </div>
 
             <div className="mt-4 grid gap-3">
-              <div>
-                <div className="mb-2 text-[10px] uppercase text-white/80">Skin</div>
-                <div className="flex gap-2">
-                  {SKIN_TONES.map((color) => (
-                    <button
-                      key={color}
-                      className="picker-dot"
-                      style={{ backgroundColor: color }}
-                      onClick={() => setSkinTone(color)}
-                      aria-label={`Skin ${color}`}
-                    />
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <div className="mb-2 text-[10px] uppercase text-white/80">Hair Style</div>
-                <div className="grid grid-cols-2 gap-2">
-                  {HAIR_STYLES.map((style) => (
-                    <button
-                      key={style}
-                      type="button"
-                      className={`rounded-none border-2 px-2 py-1 text-[10px] uppercase ${
-                        hairStyle === style
-                          ? "border-white bg-white text-sky-600"
-                          : "border-sky-300/80 bg-sky-100/90 text-slate-800 hover:bg-sky-50"
-                      }`}
-                      onClick={() => setHairStyle(style)}
-                    >
-                      {style}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <div className="mb-2 text-[10px] uppercase text-white/80">Hair</div>
-                <div className="flex gap-2">
-                  {HAIR_COLORS.map((color) => (
-                    <button
-                      key={color}
-                      className="picker-dot"
-                      style={{ backgroundColor: color }}
-                      onClick={() => setHairColor(color)}
-                      aria-label={`Hair ${color}`}
-                    />
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <div className="mb-2 text-[10px] uppercase text-white/80">Eyes</div>
-                <div className="flex gap-2">
-                  {EYE_COLORS.map((color) => (
-                    <button
-                      key={color}
-                      className="picker-dot"
-                      style={{ backgroundColor: color }}
-                      onClick={() => setEyeColor(color)}
-                      aria-label={`Eyes ${color}`}
-                    />
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <div className="mb-2 text-[10px] uppercase text-white/80">Shirt</div>
-                <div className="flex gap-2">
-                  {SHIRT_COLORS.map((color) => (
-                    <button
-                      key={color}
-                      className="picker-dot"
-                      style={{ backgroundColor: color }}
-                      onClick={() => setShirtColor(color)}
-                      aria-label={`Shirt ${color}`}
-                    />
-                  ))}
-                </div>
-              </div>
-
               <div className="mt-2 grid grid-cols-2 gap-2">
                 <button
                   type="button"
                   className="rounded-none border-2 border-white/50 bg-white/10 px-2 py-2 text-[10px] uppercase text-white hover:bg-white/20"
-                  onClick={randomizeCharacter}
+                  onClick={() => stepPfp(1)}
                 >
-                  Randomize
+                  Next PFP
                 </button>
                 <button
                   type="button"

@@ -7,6 +7,7 @@ export type SavedCharacter = {
   eyeColor: string;
   hairStyle: HairStyle;
   displayName: string;
+  profilePicture?: string;
 };
 
 export type UserRecord = {
