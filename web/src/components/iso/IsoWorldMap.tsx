@@ -357,6 +357,15 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
             changed = true;
           }
 
+          // Keep "trash needs sweeping" tasks in sync with actual active piles only.
+          if (!item.trashPileActive && item.maintenanceTasks.some((t) => t.kind === "trash")) {
+            item = {
+              ...item,
+              maintenanceTasks: item.maintenanceTasks.filter((t) => t.kind !== "trash"),
+            };
+            changed = true;
+          }
+
           if (item.isPlayerTeam && !item.occupied && item.applicants.length < 5 && now >= item.nextApplicantAt) {
             item = {
               ...item,
@@ -802,18 +811,6 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
             backgroundSize: "auto",
           }}
         />
-        {eventFeed.length ? (
-          <div className="fixed bottom-4 left-4 z-[130] w-[360px] space-y-2 pointer-events-none">
-            {eventFeed.map((event) => (
-              <div
-                key={event.id}
-                className="rounded-md border border-red-400/40 bg-red-900/35 px-3 py-2 text-xs text-red-100 shadow-lg backdrop-blur-sm"
-              >
-                {event.text}
-              </div>
-            ))}
-          </div>
-        ) : null}
         {/* Layer 1: all boards. Pointer-events disabled so they never block houses. */}
         <div className="absolute inset-0 z-10" style={{ pointerEvents: "none" }}>
           {scene.boards.map((b) => (
@@ -938,6 +935,19 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
         </button>
       </div>
 
+      {eventFeed.length ? (
+        <div className="fixed bottom-4 right-4 z-[120] w-[360px] space-y-2 pointer-events-none" data-ui-button="1">
+          {eventFeed.map((event) => (
+            <div
+              key={event.id}
+              className="border-2 border-zinc-700/90 bg-zinc-900/90 px-3 py-2 text-xs text-zinc-100 shadow-[3px_3px_0_rgba(0,0,0,0.6)] backdrop-blur-sm"
+            >
+              {event.text}
+            </div>
+          ))}
+        </div>
+      ) : null}
+
       <div
         className="fixed right-4 top-1/2 z-[120] flex -translate-y-1/2 flex-col gap-2"
         data-ui-button="1"
@@ -969,7 +979,7 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
         isOpen={!!selectedHouse && !!selectedRuntime}
         onClose={() => setSelectedHouseId(null)}
         houseSrc={selectedHouse?.src ?? ""}
-        houseLabel={selectedHouse ? `${familyForHouse(selectedHouse.boardId, selectedHouse.padIndex).lastName} family` : "House"}
+        houseLabel={selectedHouse ? `${familyForHouse(selectedHouse.boardId, selectedHouse.padIndex).lastName} family (House #${selectedHouse.padIndex + 1})` : "House"}
         canEvict={selectedHouse?.isPlayerTeam ?? false}
         runtime={
           selectedRuntime ?? {
@@ -1186,7 +1196,7 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
               const tasks = session?.maintenanceTasks ?? [];
               const incidentTasks = tasks.filter((t) => t.kind === "warning" || t.kind === "enforce" || t.kind === "repair_small" || t.kind === "repair_large");
               const routineTasks = tasks.filter((t) => t.kind === "routine");
-              const trashTasks = tasks.filter((t) => t.kind === "trash");
+              const trashTasks = session?.trashPileActive ? tasks.filter((t) => t.kind === "trash") : [];
 
               return (
                 <div key={`maint-slot-${idx}`} className="flex min-h-[220px] flex-col rounded-lg border border-zinc-800 bg-zinc-900/30 p-3">
@@ -1545,8 +1555,13 @@ function MapHouses({
         const activePile = h.isPlayerTeam && houseTrashPileFor(h, clicksDone >= requiredClicks, houseSession[h.id]);
         if (activePile) {
           const nextClicks = clicksDone + 1;
-          if (nextClicks >= requiredClicks) onPileCleaned(h.id);
-          setTrashPileClicks((prev) => ({ ...prev, [h.id]: nextClicks }));
+          if (nextClicks >= requiredClicks) {
+            onPileCleaned(h.id);
+            // Reset cleanup progress so future trash spawns on this house can be swept normally.
+            setTrashPileClicks((prev) => ({ ...prev, [h.id]: 0 }));
+          } else {
+            setTrashPileClicks((prev) => ({ ...prev, [h.id]: nextClicks }));
+          }
           e.preventDefault();
           return;
         }
