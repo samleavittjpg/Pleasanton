@@ -153,6 +153,7 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isVandalizePromptOpen, setIsVandalizePromptOpen] = useState(false);
   const [vandalizeUnlocked, setVandalizeUnlocked] = useState(false);
+  const [pendingVandalizeMethod, setPendingVandalizeMethod] = useState<"egg" | "spray" | "trash" | null>(null);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [isEndReportOpen, setIsEndReportOpen] = useState(false);
   const [isMaintenanceModalOpen, setIsMaintenanceModalOpen] = useState(false);
@@ -192,6 +193,22 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
         });
       });
       return next;
+    });
+  };
+  const focusMapOnHouse = (x: number, y: number, preferredZoom = 1.2) => {
+    const nextZoom = Math.min(MAP_ZOOM_MAX, Math.max(MAP_ZOOM_MIN, preferredZoom));
+    setMapZoom(nextZoom);
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const el = scrollRef.current;
+        if (!el) return;
+        const targetLeft = x * nextZoom - el.clientWidth / 2;
+        const targetTop = y * nextZoom - el.clientHeight / 2;
+        const maxLeft = Math.max(0, WORLD_W * nextZoom - el.clientWidth);
+        const maxTop = Math.max(0, WORLD_H * nextZoom - el.clientHeight);
+        el.scrollLeft = Math.min(maxLeft, Math.max(0, targetLeft));
+        el.scrollTop = Math.min(maxTop, Math.max(0, targetTop));
+      });
     });
   };
 
@@ -286,7 +303,8 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
   }, [houseSession]);
 
   const playerBoard = scene.boards.find((b) => b.isPlayer) ?? null;
-  const rivalNeighborhoods = useMemo(() => scene.boards.filter((b) => !b.isPlayer).map((b) => b.ownerLabel), [scene.boards]);
+  const rivalBoards = useMemo(() => scene.boards.filter((b) => !b.isPlayer), [scene.boards]);
+  const rivalNeighborhoods = useMemo(() => rivalBoards.map((b) => b.ownerLabel), [rivalBoards]);
   const leaderboardRows = useMemo(() => {
     return scene.boards
       .map((board) => {
@@ -887,6 +905,39 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
             }
           />
         </div>
+        {pendingVandalizeMethod ? (
+          <div className="absolute inset-0 z-40" data-ui-button="1">
+            {rivalBoards.flatMap((board) =>
+              board.houses.map((house) => {
+                const size = Math.round(512 * house.scale);
+                const left = house.x - size / 2;
+                const top = house.y + HOUSE_OFFSET_Y_PX - size / 2;
+                return (
+                  <button
+                    key={`vandal-target-${board.id}-${house.id}`}
+                    type="button"
+                    data-ui-button="1"
+                    className="absolute border-2 border-fuchsia-400/80 bg-fuchsia-500/10 text-[10px] uppercase tracking-wide text-fuchsia-100 shadow-[0_0_0_2px_rgba(0,0,0,0.35)] hover:bg-fuchsia-500/25"
+                    style={{ left: `${left}px`, top: `${top}px`, width: `${size}px`, height: `${size}px` }}
+                    onClick={() => {
+                      focusMapOnHouse(house.x, house.y + HOUSE_OFFSET_Y_PX, 1.25);
+                      const actionLabel =
+                        pendingVandalizeMethod === "egg"
+                          ? "Egg attack"
+                          : pendingVandalizeMethod === "spray"
+                            ? "Spray paint"
+                            : "Trash dump";
+                      pushToast(`${actionLabel} launched at ${board.ownerLabel}.`);
+                      setPendingVandalizeMethod(null);
+                    }}
+                  >
+                    Target
+                  </button>
+                );
+              })
+            )}
+          </div>
+        ) : null}
         </div>
       </div>
 
@@ -956,8 +1007,27 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
         </button>
       </div>
 
+      {pendingVandalizeMethod ? (
+        <div className="fixed right-4 top-4 z-[130]" data-ui-button="1">
+          <button
+            type="button"
+            data-ui-button="1"
+            className="rounded-md border border-zinc-700 bg-zinc-900/90 px-3 py-1.5 text-[11px] uppercase text-zinc-200 hover:bg-zinc-800"
+            onClick={() => setPendingVandalizeMethod(null)}
+          >
+            Cancel Targeting
+          </button>
+        </div>
+      ) : null}
+
       {isVandalizePromptOpen ? (
-        <Modal title="Want to Vandalize" onClose={() => setIsVandalizePromptOpen(false)}>
+        <Modal
+          title={pendingVandalizeMethod ? "Choose neighborhood target" : "Want to Vandalize"}
+          onClose={() => {
+            setIsVandalizePromptOpen(false);
+            setPendingVandalizeMethod(null);
+          }}
+        >
           {!vandalizeUnlocked ? (
             <div className="space-y-3 text-xs text-zinc-200">
               <button
@@ -970,6 +1040,7 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
                 disabled={maintenanceCompletedCount < 20}
                 onClick={() => {
                   setVandalizeUnlocked(true);
+                  setPendingVandalizeMethod(null);
                   pushToast("Vandalize unlocked via maintenance milestone.");
                 }}
               >
@@ -988,6 +1059,7 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
                   if (playerMoney < 1500) return;
                   setPlayerMoney((m) => m - 1500);
                   setVandalizeUnlocked(true);
+                  setPendingVandalizeMethod(null);
                   pushToast("Paid $1,500 to unlock vandalize.");
                 }}
               >
@@ -996,15 +1068,14 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
                 Pay 1,500
               </button>
             </div>
-          ) : (
+          ) : !pendingVandalizeMethod ? (
             <div className="space-y-2 text-xs text-zinc-200">
               <div className="text-[11px] uppercase tracking-wide text-zinc-300">Choose vandalize action</div>
               <button
                 type="button"
                 className="flex w-full items-center justify-between gap-2 rounded-md border border-amber-500/35 bg-amber-500/15 px-3 py-2 font-semibold text-amber-200 hover:bg-amber-500/25"
                 onClick={() => {
-                  pushToast("Egg attack launched.");
-                  setIsVandalizePromptOpen(false);
+                  setPendingVandalizeMethod("egg");
                 }}
               >
                 <span>Egg</span>
@@ -1015,8 +1086,7 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
                 type="button"
                 className="flex w-full items-center justify-between gap-2 rounded-md border border-fuchsia-500/35 bg-fuchsia-500/15 px-3 py-2 font-semibold text-fuchsia-200 hover:bg-fuchsia-500/25"
                 onClick={() => {
-                  pushToast("Spray paint deployed.");
-                  setIsVandalizePromptOpen(false);
+                  setPendingVandalizeMethod("spray");
                 }}
               >
                 <span>Spray Paint</span>
@@ -1033,13 +1103,32 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
                 type="button"
                 className="flex w-full items-center justify-between gap-2 rounded-md border border-red-500/35 bg-red-500/15 px-3 py-2 font-semibold text-red-200 hover:bg-red-500/25"
                 onClick={() => {
-                  pushToast("Trash dumped in rival lane.");
-                  setIsVandalizePromptOpen(false);
+                  setPendingVandalizeMethod("trash");
                 }}
               >
                 <span>Dump Trash</span>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src="/bins/trashpile1.png" alt="" className="h-5 w-5 [image-rendering:pixelated]" />
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-3 text-xs text-zinc-200">
+              <div className="rounded-md border border-zinc-700 bg-zinc-900/40 px-3 py-2 text-[11px] text-zinc-300">
+                Now click a rival neighborhood directly on the map to vandalize it.
+              </div>
+              <button
+                type="button"
+                className="w-full rounded-md border border-fuchsia-500/35 bg-fuchsia-500/15 px-3 py-2 text-xs font-semibold uppercase text-fuchsia-200 hover:bg-fuchsia-500/25"
+                onClick={() => setIsVandalizePromptOpen(false)}
+              >
+                Select target on map
+              </button>
+              <button
+                type="button"
+                className="w-full rounded-md border border-zinc-700 bg-zinc-800 px-3 py-2 text-[11px] uppercase text-zinc-300 hover:bg-zinc-700"
+                onClick={() => setPendingVandalizeMethod(null)}
+              >
+                Back
               </button>
             </div>
           )}
