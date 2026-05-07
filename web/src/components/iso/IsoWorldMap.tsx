@@ -125,6 +125,7 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
   const [houseSession, setHouseSession] = useState<Record<string, HouseSessionState>>({});
   const [eventFeed, setEventFeed] = useState<ToastNotice[]>([]);
   const [isBuyModalOpen, setIsBuyModalOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [playerSlotKinds, setPlayerSlotKinds] = useState<Array<PlacedHouse["kind"] | null>>(() => initPlayerSlotKinds(playerVariantId));
   const [mapZoom, setMapZoom] = useState(1);
   const [moodPanelOpen, setMoodPanelOpen] = useState(false);
@@ -625,6 +626,21 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
           className="h-auto w-[72px] select-none transition duration-150 ease-out [-webkit-user-drag:none] [image-rendering:pixelated] group-hover:brightness-110 group-hover:[filter:drop-shadow(0_0_1px_rgba(34,74,180,0.98))_drop-shadow(0_0_3px_rgba(34,74,180,0.92))] group-active:brightness-95"
         />
       </button>
+      <button
+        type="button"
+        data-ui-button="1"
+        className="group fixed left-[calc(1rem+8px)] top-[calc(50%+84px)] z-[120] flex h-[56px] w-[56px] -translate-y-1/2 items-center justify-center rounded-md border-2 border-zinc-700 bg-zinc-900/92 p-2 transition duration-150 ease-out hover:scale-105 hover:border-zinc-500 hover:bg-zinc-800 active:scale-95"
+        onClick={() => setIsSettingsOpen(true)}
+        aria-label="Open settings"
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          alt=""
+          src="/Icons/settings-svgrepo-com.svg"
+          draggable={false}
+          className="h-auto w-[36px] select-none transition duration-150 ease-out [-webkit-user-drag:none] [image-rendering:pixelated] group-hover:brightness-110 group-hover:[filter:drop-shadow(0_0_1px_rgba(34,74,180,0.98))_drop-shadow(0_0_3px_rgba(34,74,180,0.92))] group-active:brightness-95"
+        />
+      </button>
 
       <div
         className="fixed right-4 top-1/2 z-[120] flex -translate-y-1/2 flex-col gap-2"
@@ -732,6 +748,12 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
           });
         }}
       />
+
+      {isSettingsOpen ? (
+        <Modal title="Settings" onClose={() => setIsSettingsOpen(false)}>
+          <div className="text-xs text-zinc-200">Neighborhood settings panel coming soon.</div>
+        </Modal>
+      ) : null}
 
       {isBuyModalOpen ? (
         <Modal title="House Buy / Upgrade" onClose={() => setIsBuyModalOpen(false)}>
