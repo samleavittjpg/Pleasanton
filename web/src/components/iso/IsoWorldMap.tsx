@@ -922,6 +922,22 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
         <button
           type="button"
           data-ui-button="1"
+          className="group -ml-[14px] flex h-[100px] w-[100px] items-center justify-center transition duration-150 ease-out hover:scale-105 active:scale-95"
+          onClick={() => setMoodPanelOpen((open) => !open)}
+          aria-label="Open vandalism overview"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            alt=""
+            src="/Icons/Vandalized.png"
+            draggable={false}
+            className="h-full w-full object-contain select-none transition duration-150 ease-out [-webkit-user-drag:none] [image-rendering:pixelated] group-hover:brightness-110 group-hover:[filter:drop-shadow(0_0_1px_rgba(239,68,68,0.98))_drop-shadow(0_0_3px_rgba(239,68,68,0.92))] group-active:brightness-95"
+          />
+        </button>
+
+        <button
+          type="button"
+          data-ui-button="1"
           className="group flex h-[56px] w-[56px] items-center justify-center rounded-md border-2 border-zinc-700 bg-zinc-900/92 p-2 transition duration-150 ease-out hover:scale-105 hover:border-zinc-500 hover:bg-zinc-800 active:scale-95"
           onClick={() => setIsSettingsOpen(true)}
           aria-label="Open settings"
