@@ -37,7 +37,8 @@
     "**/*.ts",
     "**/*.tsx",
     ".pleasanton-next-dev/types/**/*.ts",
-    ".pleasanton-next-dev/dev/types/**/*.ts"
+    ".pleasanton-next-dev/dev/types/**/*.ts",
+    ".next/dev/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules"
