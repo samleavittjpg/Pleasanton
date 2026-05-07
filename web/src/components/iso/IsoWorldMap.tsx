@@ -168,7 +168,7 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
   const [playerMoney, setPlayerMoney] = useState(5000);
   const [maintenanceCompletedCount, setMaintenanceCompletedCount] = useState(0);
   const [moneyCollectedTotal, setMoneyCollectedTotal] = useState(0);
-  const [happinessHistory, setHappinessHistory] = useState<HappinessPoint[]>([{ tSec: 0, mood: 72 }]);
+  const [happinessHistory, setHappinessHistory] = useState<HappinessPoint[]>([{ tSec: 0, mood: 100 }]);
   const [vandalismByNeighbor, setVandalismByNeighbor] = useState<Record<string, number>>({});
   const [playerSlotKinds, setPlayerSlotKinds] = useState<Array<PlacedHouse["kind"] | null>>(() => initPlayerSlotKinds(playerVariantId));
   const [mapZoom, setMapZoom] = useState(1);
@@ -337,7 +337,7 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
           occupied: true,
           tenant: baseFamily,
           tenantMalicious: false,
-          happiness: tempHappinessScore(baseFamily.dailyAvgTrash, baseFamily.complaintsPerWeek),
+          happiness: 100,
           applicants: [],
           recentIncidents: [],
           nextApplicantAt: now + randomInRangeMs(10, 30),
@@ -621,7 +621,7 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
       }
     : null;
   const neighborhoodMood = useMemo(() => {
-    if (!playerHomes.length) return 72;
+    if (!playerHomes.length) return 100;
     const total = playerHomes.reduce((sum, home) => sum + home.happiness, 0);
     return Math.round(total / playerHomes.length);
   }, [playerHomes]);
