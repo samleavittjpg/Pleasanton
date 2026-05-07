@@ -729,10 +729,10 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
           <button
             type="button"
             data-ui-button="1"
-            className="flex cursor-pointer items-center gap-3 rounded border border-black/60 bg-zinc-900/80 px-3 py-2 shadow-[3px_3px_0_rgba(0,0,0,0.6)] backdrop-blur-sm"
+            className="flex cursor-pointer items-center gap-1 rounded bg-zinc-900/70 px-1 py-0 shadow-[2px_2px_0_rgba(0,0,0,0.45)] backdrop-blur-sm"
             onClick={() => setMoodPanelOpen((open) => !open)}
           >
-            <div className="relative h-[26px] w-[220px] sm:h-[30px] sm:w-[260px]">
+            <div className="relative h-[13px] w-[300px] sm:h-[13px] sm:w-[380px]">
               {/* Filled polygon clipped by width (thickness comes from the filled shape, not the stroke). */}
               <div className="absolute inset-0 bg-zinc-800/80" />
               <div className="absolute inset-y-0 left-0 overflow-hidden" style={{ width: `${clampedNeighborhoodMood}%` }}>
@@ -750,7 +750,17 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
                 priority
               />
             </div>
-            <div className="text-[11px] uppercase tracking-wide text-amber-300">Mood: {neighborhoodMood}%</div>
+            <div className="text-[9px] uppercase tracking-wide text-amber-300">Mood: {neighborhoodMood}%</div>
+            <div className="flex items-center gap-0.5 rounded border border-emerald-500/35 bg-emerald-900/20 px-1 py-0 text-[9px] uppercase tracking-wide text-emerald-200">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                alt=""
+                src="/Icons/Dollar.png"
+                draggable={false}
+                className="h-14 w-14 select-none [-webkit-user-drag:none] [image-rendering:pixelated]"
+              />
+              <span>${playerMoney}</span>
+            </div>
           </button>
           {moodPanelOpen ? (
             <div className="w-full max-w-xs rounded-none border border-zinc-700 bg-zinc-900 px-3 py-2 text-[11px] text-zinc-100 shadow-[3px_3px_0_rgba(0,0,0,0.6)]">
