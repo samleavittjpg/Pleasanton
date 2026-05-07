@@ -27,6 +27,15 @@ type PlacedHouse = {
   isPlayerTeam: boolean;
 };
 
+type MaintenanceTask = {
+  id: string;
+  kind: "trash" | "routine" | "warning" | "enforce" | "repair_small" | "repair_large";
+  label: string;
+  cost: number;
+  happinessDelta: number;
+  escalatesAt?: number;
+};
+
 type HouseSessionState = {
   isPlayerTeam: boolean;
   occupied: boolean;
@@ -40,6 +49,8 @@ type HouseSessionState = {
   trashPileActive: boolean;
   nextTrashSpawnAt: number;
   nextTrashPenaltyAt: number;
+  maintenanceTasks: MaintenanceTask[];
+  nextRoutineMaintenanceAt: number;
 };
 
 type ToastNotice = {
@@ -77,6 +88,17 @@ const SCALE_BY_KIND: Record<PlacedHouse["kind"], number> = {
 };
 const MID_UPGRADE_COST = 500;
 const FULL_UPGRADE_COST = 1200;
+// Maintenance/investigation tuning (stub values for prototyping).
+const WARNING_HAPPINESS_DELTA = 6;
+const ENFORCE_HAPPINESS_DELTA = 10;
+const WARNING_COST = 0;
+const ENFORCE_COST = 250;
+const REPAIR_SMALL_COST = 400;
+const REPAIR_SMALL_HAPPINESS_DELTA = -3;
+const REPAIR_LARGE_COST = 900;
+const REPAIR_LARGE_HAPPINESS_DELTA = -6;
+const ROUTINE_MAINTENANCE_COST = 150;
+const ROUTINE_MAINTENANCE_HAPPINESS_DELTA = 5;
 
 function getPads(): Pad[] {
   const pads: Pad[] = BOARD_PADS.map((p) => ({ ...p, scale: HOUSE_SCALE }));
@@ -126,9 +148,12 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
   const [eventFeed, setEventFeed] = useState<ToastNotice[]>([]);
   const [isBuyModalOpen, setIsBuyModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isMaintenanceModalOpen, setIsMaintenanceModalOpen] = useState(false);
+  const [playerMoney, setPlayerMoney] = useState(5000);
   const [playerSlotKinds, setPlayerSlotKinds] = useState<Array<PlacedHouse["kind"] | null>>(() => initPlayerSlotKinds(playerVariantId));
   const [mapZoom, setMapZoom] = useState(1);
   const [moodPanelOpen, setMoodPanelOpen] = useState(false);
+  const houseSessionRef = useRef<Record<string, HouseSessionState>>({});
 
   const bumpMapZoom = (delta: number) => {
     const el = scrollRef.current;
@@ -236,6 +261,8 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
           trashPileActive: false,
           nextTrashSpawnAt: now + randomInRangeMs(60, 90),
           nextTrashPenaltyAt: now + randomInRangeMs(20, 40),
+          maintenanceTasks: [],
+          nextRoutineMaintenanceAt: now + randomInRangeMs(60, 120),
         };
       }
       return next;
@@ -243,12 +270,22 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
   }, [scene.allHouses]);
 
   useEffect(() => {
+    houseSessionRef.current = houseSession;
+  }, [houseSession]);
+
+  const playerBoard = scene.boards.find((b) => b.isPlayer) ?? null;
+  const playerHouseIds = useMemo(() => new Set((playerBoard?.houses ?? []).map((h) => h.id)), [playerBoard]);
+  const playerHomes = useMemo(
+    () => (playerBoard?.houses ?? []).map((h) => houseSession[h.id]).filter((h): h is HouseSessionState => Boolean(h)),
+    [playerBoard, houseSession],
+  );
+
+  useEffect(() => {
     if (!onNeighborhoodMoodChange) return;
-    const playerHomes = Object.values(houseSession).filter((home) => home.isPlayerTeam);
     if (playerHomes.length === 0) return;
     const total = playerHomes.reduce((sum, home) => sum + home.happiness, 0);
     onNeighborhoodMoodChange(Math.round(total / playerHomes.length));
-  }, [houseSession, onNeighborhoodMoodChange]);
+  }, [playerHomes, onNeighborhoodMoodChange]);
 
   useEffect(() => {
     const id = window.setInterval(() => {
@@ -259,6 +296,25 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
         const next: Record<string, HouseSessionState> = { ...prev };
         for (const [houseId, s] of Object.entries(prev)) {
           let item = s;
+
+          // Ignore stale player sessions for slots/houses no longer owned or rendered.
+          if (item.isPlayerTeam && !playerHouseIds.has(houseId)) {
+            if (item.maintenanceTasks.length || item.trashPileActive || item.applicants.length || item.recentIncidents.length) {
+              item = {
+                ...item,
+                occupied: false,
+                tenant: null,
+                tenantMalicious: false,
+                applicants: [],
+                recentIncidents: [],
+                trashPileActive: false,
+                maintenanceTasks: [],
+              };
+              changed = true;
+            }
+            if (item !== s) next[houseId] = item;
+            continue;
+          }
 
           if (item.occupied && item.applicants.length > 0) {
             item = {
@@ -278,11 +334,25 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
           }
 
           if (item.occupied && now >= item.nextTrashSpawnAt && !item.trashPileActive) {
+            const nextTasks = (() => {
+              if (!item.isPlayerTeam) return item.maintenanceTasks;
+              const hasTrashTask = item.maintenanceTasks.some((t) => t.kind === "trash");
+              if (hasTrashTask) return item.maintenanceTasks;
+              const trashTask: MaintenanceTask = {
+                id: `${houseId}:task:trash:${now}`,
+                kind: "trash",
+                label: `Trash needs sweeping.`,
+                cost: 0,
+                happinessDelta: 0,
+              };
+              return [...item.maintenanceTasks, trashTask];
+            })();
             item = {
               ...item,
               trashPileActive: true,
               nextTrashPenaltyAt: now + randomInRangeMs(20, 40),
               nextTrashSpawnAt: now + randomInRangeMs(60, 90),
+              maintenanceTasks: nextTasks,
             };
             changed = true;
           }
@@ -299,15 +369,64 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
             changed = true;
           }
 
+          // Escalate pending repairs if the tiny fix wasn't addressed in time.
+          if (item.isPlayerTeam) {
+            let didEscalate = false;
+            const nextTasks: MaintenanceTask[] = item.maintenanceTasks.map((t) => {
+              if (t.kind !== "repair_small") return t;
+              if (!t.escalatesAt || now < t.escalatesAt) return t;
+              didEscalate = true;
+              return {
+                id: t.id,
+                kind: "repair_large",
+                label: `Major repairs needed: ${t.label.replace(/^Repairs needed:\s*/i, "")}`,
+                cost: REPAIR_LARGE_COST,
+                happinessDelta: REPAIR_LARGE_HAPPINESS_DELTA,
+              };
+            });
+            if (didEscalate) {
+              item = {
+                ...item,
+                maintenanceTasks: nextTasks,
+                happiness: Math.max(0, item.happiness - 2),
+              };
+              notices.push("Repairs escalated for a house.");
+              changed = true;
+            }
+          }
+
           if (item.isPlayerTeam && item.occupied && item.tenantMalicious && now >= item.nextIncidentAt) {
-            const event = randomIncident();
+            const incident = randomIncidentScenario();
+            const event = incident.text;
+            const incidentTask = incidentToMaintenanceTask(houseId, now, incident);
+            const nextTasks = incidentTask ? [...item.maintenanceTasks, incidentTask] : item.maintenanceTasks;
             item = {
               ...item,
               happiness: Math.max(0, item.happiness - (5 + (hash(`${houseId}:${now}`) % 8))),
               recentIncidents: [event, ...item.recentIncidents].slice(0, 5),
               nextIncidentAt: now + randomInRangeMs(60, 120),
+              maintenanceTasks: nextTasks,
             };
             notices.push(event);
+            changed = true;
+          }
+
+          // Routine maintenance (keeps tenants happier).
+          if (item.isPlayerTeam && item.occupied && now >= item.nextRoutineMaintenanceAt) {
+            const hasRoutine = item.maintenanceTasks.some((t) => t.kind === "routine");
+            const routineTask: MaintenanceTask = {
+              id: `${houseId}:task:routine:${now}`,
+              kind: "routine",
+              label: `House maintenance due.`,
+              cost: ROUTINE_MAINTENANCE_COST,
+              happinessDelta: ROUTINE_MAINTENANCE_HAPPINESS_DELTA,
+            };
+            const nextTasks: MaintenanceTask[] = hasRoutine ? item.maintenanceTasks : [...item.maintenanceTasks, routineTask];
+            item = {
+              ...item,
+              maintenanceTasks: nextTasks,
+              nextRoutineMaintenanceAt: now + randomInRangeMs(60, 120),
+            };
             changed = true;
           }
 
@@ -326,7 +445,7 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
       }
     }, 1000);
     return () => window.clearInterval(id);
-  }, []);
+  }, [playerHouseIds]);
 
   useEffect(() => {
     if (!eventFeed.length) return;
@@ -336,6 +455,23 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
     }, 500);
     return () => window.clearInterval(id);
   }, [eventFeed.length]);
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      const sessions = houseSessionRef.current;
+      const homes = (playerBoard?.houses ?? []).map((h) => sessions[h.id]).filter((h): h is HouseSessionState => Boolean(h));
+      if (!homes.length) return;
+      const payout = homes.reduce((sum, h) => {
+        if (!h.isPlayerTeam || !h.occupied || !h.tenant) return sum;
+        return sum + h.tenant.dailyMoneyContribution;
+      }, 0);
+      if (payout <= 0) return;
+      setPlayerMoney((m) => m + payout);
+      const now = Date.now();
+      setEventFeed((prev) => [{ id: `${now}-income`, text: `Collected $${payout} tenant contribution.`, expiresAt: now + 7000 }, ...prev].slice(0, 4));
+    }, 30000);
+    return () => window.clearInterval(id);
+  }, [playerBoard]);
 
   const selectedHouse = selectedHouseId ? scene.allHouses.find((h) => h.id === selectedHouseId) ?? null : null;
   const selectedSession = selectedHouse ? houseSession[selectedHouse.id] : undefined;
@@ -354,41 +490,48 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
       }
     : null;
   const neighborhoodMood = useMemo(() => {
-    const playerHomes = Object.values(houseSession).filter((home) => home.isPlayerTeam);
     if (!playerHomes.length) return 72;
     const total = playerHomes.reduce((sum, home) => sum + home.happiness, 0);
     return Math.round(total / playerHomes.length);
-  }, [houseSession]);
+  }, [playerHomes]);
   const clampedNeighborhoodMood = Math.max(0, Math.min(100, neighborhoodMood));
   const happybarFillColor = clampedNeighborhoodMood <= 25 ? "#ef4444" : "#facc15";
   const HAPPYBAR_POINTS =
     "1837.12 9.98 1837.12 1.5 16.88 1.5 16.88 9.98 1.5 9.98 1.5 47.28 16.88 47.28 16.88 54.06 1837.12 54.06 1837.12 47.28 1852.5 47.28 1852.5 9.98 1837.12 9.98";
 
   const cleanlinessScore = useMemo(() => {
-    const homes = Object.values(houseSession).filter((h) => h.isPlayerTeam);
-    if (!homes.length) return 70;
-    const dirtyCount = homes.filter((h) => h.trashPileActive).length;
-    const ratio = 1 - dirtyCount / homes.length;
+    if (!playerHomes.length) return 70;
+    const dirtyCount = playerHomes.filter((h) => h.trashPileActive).length;
+    const ratio = 1 - dirtyCount / playerHomes.length;
     return Math.round(40 + ratio * 60);
-  }, [houseSession]);
+  }, [playerHomes]);
 
   const moneyScore = useMemo(() => {
-    const homes = Object.values(houseSession).filter((h) => h.isPlayerTeam);
-    if (!homes.length) return 65;
-    const avg = homes.reduce((sum, h) => sum + (h.tenant?.dailyMoneyContribution ?? 0), 0) / homes.length || 0;
+    if (!playerHomes.length) return 65;
+    const avg = playerHomes.reduce((sum, h) => sum + (h.tenant?.dailyMoneyContribution ?? 0), 0) / playerHomes.length || 0;
     const scaled = Math.max(0, Math.min(1, avg / 250));
     return Math.round(40 + scaled * 60);
-  }, [houseSession]);
+  }, [playerHomes]);
 
   const vandalismScore = useMemo(() => {
-    const homes = Object.values(houseSession).filter((h) => h.isPlayerTeam);
-    if (!homes.length) return 80;
-    const incidents = homes.reduce((sum, h) => sum + (h.recentIncidents.length || 0), 0);
-    const perHome = incidents / homes.length;
+    if (!playerHomes.length) return 80;
+    const incidents = playerHomes.reduce((sum, h) => sum + (h.recentIncidents.length || 0), 0);
+    const perHome = incidents / playerHomes.length;
     const clean = Math.max(0, Math.min(1, 1 - perHome / 5));
     return Math.round(40 + clean * 60);
-  }, [houseSession]);
-  const playerBoard = scene.boards.find((b) => b.isPlayer) ?? null;
+  }, [playerHomes]);
+  const maintenanceNeedsAttention = (() => {
+    if (!playerBoard) return false;
+    for (let i = 0; i < 9; i++) {
+      if (!playerSlotKinds[i]) continue;
+      const h = playerBoard.houses.find((x) => x.padIndex === i);
+      if (!h) continue;
+      const s = houseSession[h.id];
+      if (!s || !s.isPlayerTeam) continue;
+      if (s.maintenanceTasks.length > 0) return true;
+    }
+    return false;
+  })();
   const updatePlayerSlotKind = (slotIdx: number, nextKind: PlacedHouse["kind"]) => {
     setPlayerSlotKinds((prev) => {
       if (prev[slotIdx] === nextKind) return prev;
@@ -399,6 +542,34 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
     const now = Date.now();
     const noticeText = `Slot ${slotIdx + 1} upgraded to ${nextKind}.`;
     setEventFeed((prev) => [{ id: `${now}-slot-${slotIdx}-${nextKind}`, text: noticeText, expiresAt: now + 7000 }, ...prev].slice(0, 4));
+  };
+
+  const pushToast = (text: string) => {
+    const now = Date.now();
+    setEventFeed((prev) => [{ id: `${now}-maint-${hash(text)}`, text, expiresAt: now + 7000 }, ...prev].slice(0, 4));
+  };
+
+  const resolveMaintenanceTask = (houseId: string, task: MaintenanceTask) => {
+    setHouseSession((prev) => {
+      const s = prev[houseId];
+      if (!s) return prev;
+      return {
+        ...prev,
+        [houseId]: {
+          ...s,
+          happiness: Math.max(0, Math.min(100, s.happiness + task.happinessDelta)),
+          maintenanceTasks: s.maintenanceTasks.filter((t) => t.id !== task.id),
+        },
+      };
+    });
+    if (task.cost > 0) {
+      setPlayerMoney((m) => Math.max(0, m - task.cost));
+    }
+    if (task.kind === "warning") pushToast("Warning sent. Happiness increased.");
+    else if (task.kind === "enforce") pushToast("Violation enforced. Happiness increased.");
+    else if (task.kind === "repair_small") pushToast("Small repair done. Paid for fixes.");
+    else if (task.kind === "repair_large") pushToast("Major repair done. Repairs completed.");
+    else if (task.kind === "routine") pushToast("Routine maintenance completed.");
   };
 
   return (
@@ -413,7 +584,7 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
       onPointerDown={(e) => {
         const el = scrollRef.current;
         if (!el) return;
-        if (selectedHouseId || isBuyModalOpen) return;
+        if (selectedHouseId || isBuyModalOpen || isMaintenanceModalOpen) return;
         // If clicking on a house button, let it handle the click.
         const target = e.target as HTMLElement;
         if (target.closest("[data-modal-root='1']")) return;
@@ -596,12 +767,13 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
                   [houseId]: {
                     ...s,
                     trashPileActive: false,
+                    maintenanceTasks: s.maintenanceTasks.filter((t) => t.kind !== "trash"),
                     nextTrashSpawnAt: Date.now() + randomInRangeMs(60, 90),
                     tenant: {
                       ...s.tenant,
                       dailyAvgTrash: Math.max(1, s.tenant.dailyAvgTrash - 4),
                     },
-                    happiness: Math.min(100, s.happiness + 2),
+                    happiness: Math.min(100, s.happiness + 8),
                   },
                 };
               })
@@ -611,36 +783,55 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
         </div>
       </div>
 
-      <button
-        type="button"
-        data-ui-button="1"
-        className="group fixed left-4 top-1/2 z-[120] -translate-y-1/2 transition duration-150 ease-out hover:scale-105 active:scale-95"
-        onClick={() => setIsBuyModalOpen(true)}
-        aria-label="Open house buy and upgrade menu"
-      >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          alt=""
-          src="/Icons/housebuy.png"
-          draggable={false}
-          className="h-auto w-[72px] select-none transition duration-150 ease-out [-webkit-user-drag:none] [image-rendering:pixelated] group-hover:brightness-110 group-hover:[filter:drop-shadow(0_0_1px_rgba(34,74,180,0.98))_drop-shadow(0_0_3px_rgba(34,74,180,0.92))] group-active:brightness-95"
-        />
-      </button>
-      <button
-        type="button"
-        data-ui-button="1"
-        className="group fixed left-[calc(1rem+8px)] top-[calc(50%+84px)] z-[120] flex h-[56px] w-[56px] -translate-y-1/2 items-center justify-center rounded-md border-2 border-zinc-700 bg-zinc-900/92 p-2 transition duration-150 ease-out hover:scale-105 hover:border-zinc-500 hover:bg-zinc-800 active:scale-95"
-        onClick={() => setIsSettingsOpen(true)}
-        aria-label="Open settings"
-      >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          alt=""
-          src="/Icons/settings-svgrepo-com.svg"
-          draggable={false}
-          className="h-auto w-[36px] select-none transition duration-150 ease-out [-webkit-user-drag:none] [image-rendering:pixelated] group-hover:brightness-110 group-hover:[filter:drop-shadow(0_0_1px_rgba(34,74,180,0.98))_drop-shadow(0_0_3px_rgba(34,74,180,0.92))] group-active:brightness-95"
-        />
-      </button>
+      <div className="fixed left-4 top-1/2 z-[120] flex -translate-y-1/2 flex-col items-start gap-1.5" data-ui-button="1">
+        <button
+          type="button"
+          data-ui-button="1"
+          className="group transition duration-150 ease-out hover:scale-105 active:scale-95"
+          onClick={() => setIsMaintenanceModalOpen(true)}
+          aria-label="Open house maintenance menu"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            alt=""
+            src={maintenanceNeedsAttention ? "/Icons/maintinanceactive.png" : "/Icons/maintinance.png"}
+            draggable={false}
+            className={`h-auto w-[72px] select-none transition duration-150 ease-out [-webkit-user-drag:none] [image-rendering:pixelated] group-hover:brightness-110 group-hover:[filter:drop-shadow(0_0_1px_rgba(34,197,94,0.98))_drop-shadow(0_0_3px_rgba(34,197,94,0.92))] group-active:brightness-95 ${maintenanceNeedsAttention ? "ui-attn-shake" : ""}`}
+          />
+        </button>
+
+        <button
+          type="button"
+          data-ui-button="1"
+          className="group transition duration-150 ease-out hover:scale-105 active:scale-95"
+          onClick={() => setIsBuyModalOpen(true)}
+          aria-label="Open house buy and upgrade menu"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            alt=""
+            src="/Icons/housebuy.png"
+            draggable={false}
+            className="h-auto w-[72px] select-none transition duration-150 ease-out [-webkit-user-drag:none] [image-rendering:pixelated] group-hover:brightness-110 group-hover:[filter:drop-shadow(0_0_1px_rgba(34,74,180,0.98))_drop-shadow(0_0_3px_rgba(34,74,180,0.92))] group-active:brightness-95"
+          />
+        </button>
+
+        <button
+          type="button"
+          data-ui-button="1"
+          className="group flex h-[56px] w-[56px] items-center justify-center rounded-md border-2 border-zinc-700 bg-zinc-900/92 p-2 transition duration-150 ease-out hover:scale-105 hover:border-zinc-500 hover:bg-zinc-800 active:scale-95"
+          onClick={() => setIsSettingsOpen(true)}
+          aria-label="Open settings"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            alt=""
+            src="/Icons/settings-svgrepo-com.svg"
+            draggable={false}
+            className="h-auto w-[36px] select-none transition duration-150 ease-out [-webkit-user-drag:none] [image-rendering:pixelated] group-hover:brightness-110 group-hover:[filter:drop-shadow(0_0_1px_rgba(34,74,180,0.98))_drop-shadow(0_0_3px_rgba(34,74,180,0.92))] group-active:brightness-95"
+          />
+        </button>
+      </div>
 
       <div
         className="fixed right-4 top-1/2 z-[120] flex -translate-y-1/2 flex-col gap-2"
@@ -697,6 +888,8 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
                 tenant: null,
                 tenantMalicious: false,
                 trashPileActive: false,
+                maintenanceTasks: [],
+                nextRoutineMaintenanceAt: Date.now() + randomInRangeMs(60, 120),
                 nextApplicantAt: Date.now() + randomInRangeMs(10, 30),
               },
             };
@@ -725,9 +918,11 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
                 tenantMalicious: applicant.malicious,
                 applicants: [],
                 recentIncidents: [],
+                maintenanceTasks: [],
                 happiness: applicant.malicious ? Math.max(20, s.happiness - 10) : Math.min(100, s.happiness + 5),
                 nextIncidentAt: Date.now() + randomInRangeMs(60, 120),
                 nextTrashSpawnAt: Date.now() + randomInRangeMs(60, 90),
+                nextRoutineMaintenanceAt: Date.now() + randomInRangeMs(60, 120),
               },
             };
           });
@@ -752,6 +947,111 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
       {isSettingsOpen ? (
         <Modal title="Settings" onClose={() => setIsSettingsOpen(false)}>
           <div className="text-xs text-zinc-200">Neighborhood settings panel coming soon.</div>
+        </Modal>
+      ) : null}
+
+      {isMaintenanceModalOpen ? (
+        <Modal title="House Maintenance" onClose={() => setIsMaintenanceModalOpen(false)}>
+          <div className="mb-3 text-xs text-zinc-400">Player money: ${playerMoney}</div>
+          <div className="grid max-h-[70vh] gap-3 overflow-y-auto sm:grid-cols-2">
+            {Array.from({ length: 9 }, (_, idx) => {
+              const slotKind = playerSlotKinds[idx] ?? null;
+              const slotHouse = slotKind ? playerBoard?.houses.find((h) => h.padIndex === idx) ?? null : null;
+              const session = slotKind && slotHouse ? houseSession[slotHouse.id] : undefined;
+              const tasks = session?.maintenanceTasks ?? [];
+              const incidentTasks = tasks.filter((t) => t.kind === "warning" || t.kind === "enforce" || t.kind === "repair_small" || t.kind === "repair_large");
+              const routineTasks = tasks.filter((t) => t.kind === "routine");
+              const trashTasks = tasks.filter((t) => t.kind === "trash");
+
+              return (
+                <div key={`maint-slot-${idx}`} className="flex min-h-[220px] flex-col rounded-lg border border-zinc-800 bg-zinc-900/30 p-3">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <div className="text-xs uppercase tracking-wide text-zinc-400">House #{idx + 1}</div>
+                    <div className="text-xs font-semibold text-zinc-200">{slotKind ? `${slotKind} tier` : "Empty lot"}</div>
+                  </div>
+
+                  {incidentTasks.length ? (
+                    <div className="mt-3 rounded-md border border-amber-500/25 bg-amber-900/20 p-2">
+                      <div className="text-[11px] uppercase tracking-wide text-amber-200">House #{idx + 1} incident</div>
+                      <div className="mt-2 space-y-2">
+                        {incidentTasks.map((task) => (
+                          <div key={task.id} className="space-y-1">
+                            <div className="text-xs text-zinc-200">{task.label}</div>
+                            {task.kind === "warning" ? (
+                              <button
+                                type="button"
+                                className="rounded-md border border-emerald-500/40 bg-emerald-600/20 px-2 py-1 text-xs font-semibold text-emerald-200 hover:bg-emerald-600/30"
+                                onClick={() => slotHouse && resolveMaintenanceTask(slotHouse.id, task)}
+                              >
+                                Send warning
+                              </button>
+                            ) : null}
+                            {task.kind === "enforce" ? (
+                              <button
+                                type="button"
+                                className="rounded-md border border-emerald-500/40 bg-emerald-600/20 px-2 py-1 text-xs font-semibold text-emerald-200 hover:bg-emerald-600/30"
+                                onClick={() => slotHouse && resolveMaintenanceTask(slotHouse.id, task)}
+                              >
+                                Enforce violation (${task.cost})
+                              </button>
+                            ) : null}
+                            {task.kind === "repair_small" ? (
+                              <button
+                                type="button"
+                                className="rounded-md border border-amber-500/40 bg-amber-600/20 px-2 py-1 text-xs font-semibold text-amber-200 hover:bg-amber-600/30"
+                                onClick={() => slotHouse && resolveMaintenanceTask(slotHouse.id, task)}
+                              >
+                                Repair (small) - ${task.cost}
+                              </button>
+                            ) : null}
+                            {task.kind === "repair_large" ? (
+                              <button
+                                type="button"
+                                className="rounded-md border border-red-500/40 bg-red-600/20 px-2 py-1 text-xs font-semibold text-red-200 hover:bg-red-600/30"
+                                onClick={() => slotHouse && resolveMaintenanceTask(slotHouse.id, task)}
+                              >
+                                Repair (major) - ${task.cost}
+                              </button>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {routineTasks.length ? (
+                    <div className="mt-3 rounded-md border border-cyan-500/25 bg-cyan-900/20 p-2">
+                      <div className="text-[11px] uppercase tracking-wide text-cyan-200">House #{idx + 1} maintenance</div>
+                      <div className="mt-2 space-y-2">
+                        {routineTasks.map((task) => (
+                          <div key={task.id} className="flex items-center justify-between gap-2">
+                            <div className="text-xs text-zinc-200">{task.label}</div>
+                            <button
+                              type="button"
+                              className="rounded-md border border-cyan-500/40 bg-cyan-600/20 px-2 py-1 text-xs font-semibold text-cyan-200 hover:bg-cyan-600/30"
+                              onClick={() => slotHouse && resolveMaintenanceTask(slotHouse.id, task)}
+                            >
+                              Fix - ${task.cost}
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {trashTasks.length ? (
+                    <div className="mt-3 rounded-md border border-red-500/25 bg-red-900/20 p-2">
+                      <div className="text-[11px] uppercase tracking-wide text-red-200">House #{idx + 1} trash</div>
+                      <div className="mt-2 text-xs text-zinc-200">{trashTasks[0]!.label}</div>
+                    </div>
+                  ) : null}
+
+                  {!tasks.length ? <div className="mt-3 text-xs text-zinc-400">All clear.</div> : <div className="mt-auto" />}
+                </div>
+              );
+            })}
+          </div>
+          <div className="mt-3 text-xs text-zinc-400">Prototype: repairs and upgrades are applied instantly.</div>
         </Modal>
       ) : null}
 
@@ -1044,7 +1344,9 @@ function MapHouses({
           const session = houseSession[h.id];
           const activePile = houseTrashPileFor(h, h.isPlayerTeam ? clicksDone >= requiredClicks : false, houseSession[h.id]);
           const hasApplicantAlert = h.isPlayerTeam && session?.occupied === false && (session?.applicants.length ?? 0) > 0;
-          const hasIncidentAlert = h.isPlayerTeam && (session?.recentIncidents.length ?? 0) > 0;
+          const hasIncidentAlert =
+            h.isPlayerTeam &&
+            (session?.maintenanceTasks.some((t) => t.kind === "warning" || t.kind === "enforce" || t.kind === "repair_small" || t.kind === "repair_large") ?? false);
           const iconCount = Math.min(
             3,
             Number(Boolean(h.isPlayerTeam && activePile)) + Number(hasApplicantAlert) + Number(hasIncidentAlert),
@@ -1310,15 +1612,56 @@ function generateApplicant(houseId: string): TenantApplicant {
   };
 }
 
-function randomIncident(): string {
-  const events = [
-    "Neighbors noticed packages going missing from porches.",
-    "Late-night noise complaints increased this week.",
-    "Suspicious loitering reported near shared walkways.",
-    "Street-facing bins were knocked over overnight.",
-    "Multiple residents reported petty theft concerns.",
+type IncidentScenarioAction = "warning" | "enforce" | "repair_small";
+type IncidentScenario = { text: string; action: IncidentScenarioAction };
+
+function houseIdToSlotIndex(houseId: string): number {
+  const m = /-(\d+)$/.exec(houseId);
+  const raw = m ? Number(m[1]) : 0;
+  return Math.max(0, Math.min(8, raw));
+}
+
+function randomIncidentScenario(): IncidentScenario {
+  const events: Array<IncidentScenario> = [
+    { text: "Late-night noise complaints increased this week.", action: "warning" },
+    { text: "Neighbors noticed packages going missing from porches.", action: "enforce" },
+    { text: "Suspicious loitering reported near shared walkways.", action: "enforce" },
+    { text: "Street-facing bins were knocked over overnight.", action: "repair_small" },
+    { text: "A window was broken during the night.", action: "repair_small" },
+    { text: "Multiple residents reported petty theft concerns.", action: "enforce" },
   ];
   return events[Math.floor(Math.random() * events.length)]!;
+}
+
+function incidentToMaintenanceTask(houseId: string, now: number, incident: IncidentScenario): MaintenanceTask | null {
+  const slotIdx = houseIdToSlotIndex(houseId);
+  const id = `${houseId}:task:incident:${incident.action}:${now}`;
+  if (incident.action === "warning") {
+    return {
+      id,
+      kind: "warning",
+      label: incident.text,
+      cost: WARNING_COST,
+      happinessDelta: WARNING_HAPPINESS_DELTA,
+    };
+  }
+  if (incident.action === "enforce") {
+    return {
+      id,
+      kind: "enforce",
+      label: incident.text,
+      cost: ENFORCE_COST,
+      happinessDelta: ENFORCE_HAPPINESS_DELTA,
+    };
+  }
+  return {
+    id,
+    kind: "repair_small",
+    label: `Repairs needed: ${incident.text}`,
+    cost: REPAIR_SMALL_COST,
+    happinessDelta: REPAIR_SMALL_HAPPINESS_DELTA,
+    escalatesAt: now + randomInRangeMs(30, 60),
+  };
 }
 
 function houseSrcForKind(variantId: HouseVariantId, kind: PlacedHouse["kind"]): string {
