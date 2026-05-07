@@ -858,6 +858,7 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
           <MapHouses
             houses={scene.allHouses}
             isPanning={() => didDrag}
+            zoom={mapZoom}
             onHouseClick={(houseId) => setSelectedHouseId(houseId)}
             houseSession={houseSession}
             onPileCleaned={(houseId) =>
@@ -1422,12 +1423,14 @@ function MapHouses({
   houses,
   onHouseClick,
   isPanning,
+  zoom,
   houseSession,
   onPileCleaned,
 }: {
   houses: PlacedHouse[];
   onHouseClick: (houseId: string) => void;
   isPanning: () => boolean;
+  zoom: number;
   houseSession: Record<string, HouseSessionState>;
   onPileCleaned: (houseId: string) => void;
 }) {
@@ -1513,8 +1516,8 @@ function MapHouses({
       const root = containerRef.current;
       if (!root) return;
       const rect = root.getBoundingClientRect();
-      const x = clientX - rect.left;
-      const y = clientY - rect.top;
+      const x = (clientX - rect.left) / zoom;
+      const y = (clientY - rect.top) / zoom;
 
       // Check topmost-first by "depth" (y) so foreground wins.
       const sorted = [...houses].sort((a, b) => (b.y - a.y) || b.padIndex - a.padIndex);
@@ -1575,7 +1578,7 @@ function MapHouses({
       onMouseMove={(e) => {
         const rect = containerRef.current?.getBoundingClientRect();
         if (!rect) return;
-        setMousePos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+        setMousePos({ x: (e.clientX - rect.left) / zoom, y: (e.clientY - rect.top) / zoom });
       }}
     >
       {DEBUG_HOUSE_ANCHOR && (
