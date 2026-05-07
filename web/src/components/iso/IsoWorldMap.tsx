@@ -11,6 +11,7 @@ import { Modal } from "../Modal";
 
 type Props = {
   playerVariantId: HouseVariantId;
+  onNeighborhoodMoodChange?: (value: number) => void;
 };
 
 type PlacedHouse = {
@@ -89,7 +90,7 @@ function getPads(): Pad[] {
   });
 }
 
-export function IsoWorldMap({ playerVariantId }: Props) {
+export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const centerRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{
@@ -221,6 +222,14 @@ export function IsoWorldMap({ playerVariantId }: Props) {
   }, [scene.allHouses]);
 
   useEffect(() => {
+    if (!onNeighborhoodMoodChange) return;
+    const playerHomes = Object.values(houseSession).filter((home) => home.isPlayerTeam);
+    if (playerHomes.length === 0) return;
+    const total = playerHomes.reduce((sum, home) => sum + home.happiness, 0);
+    onNeighborhoodMoodChange(Math.round(total / playerHomes.length));
+  }, [houseSession, onNeighborhoodMoodChange]);
+
+  useEffect(() => {
     const id = window.setInterval(() => {
       const notices: string[] = [];
       setHouseSession((prev) => {
@@ -323,6 +332,16 @@ export function IsoWorldMap({ playerVariantId }: Props) {
         recentIncidents: selectedSession?.recentIncidents ?? [],
       }
     : null;
+  const neighborhoodMood = useMemo(() => {
+    const playerHomes = Object.values(houseSession).filter((home) => home.isPlayerTeam);
+    if (!playerHomes.length) return 72;
+    const total = playerHomes.reduce((sum, home) => sum + home.happiness, 0);
+    return Math.round(total / playerHomes.length);
+  }, [houseSession]);
+  const clampedNeighborhoodMood = Math.max(0, Math.min(100, neighborhoodMood));
+  const happybarFillColor = clampedNeighborhoodMood <= 25 ? "#ef4444" : "#facc15";
+  const HAPPYBAR_POINTS =
+    "1837.12 9.98 1837.12 1.5 16.88 1.5 16.88 9.98 1.5 9.98 1.5 47.28 16.88 47.28 16.88 54.06 1837.12 54.06 1837.12 47.28 1852.5 47.28 1852.5 9.98 1837.12 9.98";
   const playerBoard = scene.boards.find((b) => b.isPlayer) ?? null;
   const updatePlayerSlotKind = (slotIdx: number, nextKind: PlacedHouse["kind"]) => {
     setPlayerSlotKinds((prev) => {
@@ -393,6 +412,29 @@ export function IsoWorldMap({ playerVariantId }: Props) {
         setDidDrag(false);
       }}
     >
+      <div className="pointer-events-none fixed left-1/2 top-12 z-[125] -translate-x-1/2">
+        <div className="flex items-center gap-3 rounded border border-black/60 bg-zinc-900/80 px-3 py-2 shadow-[3px_3px_0_rgba(0,0,0,0.6)] backdrop-blur-sm">
+          <div className="relative h-[26px] w-[220px] sm:h-[30px] sm:w-[260px]">
+            {/* Filled polygon clipped by width (thickness comes from the filled shape, not the stroke). */}
+            <div className="absolute inset-0 bg-zinc-800/80" />
+            <div className="absolute inset-y-0 left-0 overflow-hidden" style={{ width: `${clampedNeighborhoodMood}%` }}>
+              <svg viewBox="0 0 1854 55.56" className="h-full w-full" preserveAspectRatio="xMidYMid meet" aria-hidden>
+                <polygon points={HAPPYBAR_POINTS} fill={happybarFillColor} />
+              </svg>
+            </div>
+            {/* Outline on top for crisp pixel edges */}
+            <Image
+              src="/happybar.svg"
+              alt="Neighborhood mood bar"
+              width={200}
+              height={32}
+              className="absolute inset-0 h-full w-full [image-rendering:pixelated]"
+              priority
+            />
+          </div>
+          <div className="text-[11px] uppercase tracking-wide text-amber-300">Mood: {neighborhoodMood}%</div>
+        </div>
+      </div>
       <div
         className="relative shrink-0"
         style={{
