@@ -922,7 +922,7 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
         <button
           type="button"
           data-ui-button="1"
-          className="group -ml-[14px] flex h-[100px] w-[100px] items-center justify-center transition duration-150 ease-out hover:scale-105 active:scale-95"
+          className="group -ml-[13px] flex h-[100px] w-[100px] items-center justify-center transition duration-150 ease-out hover:scale-105 active:scale-95"
           onClick={() => setMoodPanelOpen((open) => !open)}
           aria-label="Open vandalism overview"
         >
