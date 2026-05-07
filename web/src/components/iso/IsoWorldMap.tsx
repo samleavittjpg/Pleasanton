@@ -1013,13 +1013,21 @@ export function IsoWorldMap({ playerVariantId, onNeighborhoodMoodChange }: Props
               </button>
               <button
                 type="button"
-                className="w-full rounded-md border border-fuchsia-500/35 bg-fuchsia-500/15 px-3 py-2 text-left font-semibold text-fuchsia-200 hover:bg-fuchsia-500/25"
+                className="flex w-full items-center justify-between gap-2 rounded-md border border-fuchsia-500/35 bg-fuchsia-500/15 px-3 py-2 font-semibold text-fuchsia-200 hover:bg-fuchsia-500/25"
                 onClick={() => {
                   pushToast("Spray paint deployed.");
                   setIsVandalizePromptOpen(false);
                 }}
               >
-                Spray Paint
+                <span>Spray Paint</span>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <span className="relative h-12 w-12 overflow-hidden">
+                  <img
+                    src="/Vandalize/Spraycan.png"
+                    alt=""
+                    className="absolute -top-3 left-0 h-12 w-12 [image-rendering:pixelated]"
+                  />
+                </span>
               </button>
               <button
                 type="button"
